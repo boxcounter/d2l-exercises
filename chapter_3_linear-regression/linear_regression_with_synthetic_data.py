@@ -115,7 +115,6 @@ class Trainer:
     ) -> None:
         for X, y in self._dataloader.get_batch(True):
             self._model.train()
-            self._model.zero_grad()
             y_pred = self._model(X)
             loss = self._loss_func(y_pred, y)
             self._model.backward(loss)
@@ -162,14 +161,14 @@ class Evaluator:
 def main():
     w = [13.9, 12.1]
     b = -1.9
-    epoch = 20
+    epochs = 20
 
     data_loader = SyntheticLinearDataLoader(w, b)
     model = LinearRegressionModel(features_dim=len(w), learning_rate=0.01)
     trainer = Trainer(data_loader, model, squared_error)
     evaluator = Evaluator(data_loader, model, squared_error)
 
-    for e in range(epoch):
+    for e in range(epochs):
         trainer.train()
         loss = evaluator.evaluate()
         logger.debug("epoch #{}, loss = {}", e, loss)
