@@ -127,6 +127,7 @@ class Trainer:
     def losses(self) -> list[float]:
         return self._losses
 
+
 class Evaluator:
     def __init__(
         self,
