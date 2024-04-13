@@ -1,4 +1,5 @@
-torch
 pyright
 loguru
+torch
+torchvision
 matplotlib
