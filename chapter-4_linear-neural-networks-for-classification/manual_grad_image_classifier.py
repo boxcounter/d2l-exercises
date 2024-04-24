@@ -12,11 +12,9 @@ import matplotlib.pyplot as plt
 from loguru import logger
 
 
-class FashionMNIST:
-    labels = (
-        't-shirt', 'trouser', 'pullover', 'dress', 'coat',
-        'sandal', 'shirt', 'sneaker', 'bag', 'ankle boot'
-    )
+class FashionMNISTDataset:
+    """FashionMNIST dataset with image resizing and visualization."""
+    labels = datasets.FashionMNIST.classes
 
     def __init__(
         self,
@@ -33,17 +31,21 @@ class FashionMNIST:
 
     def get_data_loader(self, train: bool = True) -> DataLoader:
         """
-        Each row is a list, in which:
-            #0 is tensor X, its shape = n * 1 * width * height
-            #1 is tensor y, its shape = n * 1, values are indices like [9, 2, ...]
+        Returns a DataLoader object for the dataset.
+
+        Each DataLoader object yields a tuple of two tensors:
+        - X: Image tensor of shape (batch_size, 1, width, height)
+        - y: Label tensor of shape (batch_size,)
         """
         dataset = self.train if train else self.valid
         return DataLoader(dataset, self.batch_size, shuffle=train)
 
     def text_labels(self, indices: torch.Tensor) -> list[str]:
+        """Returns the text labels for the given indices."""
         return [self.labels[int(i)] for i in indices]
 
     def one_hot_labels(self, indices: torch.Tensor) -> torch.Tensor:
+        """Returns one-hot encoded labels for the given indices."""
         rows = len(indices)
         labels = torch.zeros(size=(rows, len(self.labels)))
         for row in range(rows):
@@ -57,10 +59,14 @@ class FashionMNIST:
         num_rows: int,
         num_cols: int,
         titles: list[str] | None = None,
-        scale: float = 2.0
+        scale: float = 2.0,
+        row_spacing: float = 0.5,
     ) -> None:
         figsize = (num_cols * scale, num_rows * scale)
-        _, axes = plt.subplots(num_rows, num_cols, figsize=figsize)
+        _, axes = plt.subplots(num_rows,
+                               num_cols,
+                               figsize=figsize,
+                               gridspec_kw={'hspace': row_spacing})
         axes = axes.flatten()
         for i, (ax, image) in enumerate(zip(axes, images)):
             image = image.numpy().squeeze()
@@ -81,7 +87,7 @@ class FashionMNIST:
 
         if len(batch) == 3:
             X, y, y_pred = batch
-            labels = [l + '\n' + pl
+            labels = ['Real: ' + l + '\n' + 'Pred: ' + pl
                       for l, pl in zip(self.text_labels(y),
                                        self.text_labels(y_pred))]
         elif len(batch) == 2:
@@ -124,7 +130,9 @@ class ManualGradClassifierModel(nn.Module):
         X: torch.Tensor
     ) -> torch.Tensor:
         """
-        Output shape = num_rows * num_classes
+        Forward pass of the model.
+
+        Returns the softmax of shape (num_rows, num_classes).
         """
         self._logits = X @ self._weights + self._bias
         return nn.functional.softmax(self._logits, dim=1)
@@ -175,7 +183,7 @@ class Trainer(TransformMixin):
     def __init__(
         self,
         model: ManualGradClassifierModel,
-        dataset: FashionMNIST,
+        dataset: Dataset,
         loss_measurer: nn.CrossEntropyLoss,
     ) -> None:
         self._model = model
@@ -199,6 +207,7 @@ class Trainer(TransformMixin):
 
 
 class Samples:
+    """Collects samples for correct and wrong predictions."""
     def __init__(
         self,
         max_count: int,
@@ -257,7 +266,7 @@ class Evaluator(TransformMixin):
     def __init__(
         self,
         model: ManualGradClassifierModel,
-        dataset: FashionMNIST,
+        dataset: Dataset,
         loss_measurer: nn.CrossEntropyLoss,
         num_samples: int = 8,
     ) -> None:
@@ -321,34 +330,50 @@ class Evaluator(TransformMixin):
             samples.add(x, y_, y_p_)
 
 
-class LossPlotter:
+class MetricsPlotter:
     def __init__(self) -> None:
         self._epochs = []
         self._train_losses = []
         self._evaluate_losses = []
+        self._accuracies = []
 
     def add(
         self,
         epoch: int,
         train_loss: float,
-        evaluate_loss: float
+        evaluate_loss: float,
+        accuracy: float,
     ) -> None:
         self._epochs.append(epoch)
         self._train_losses.append(train_loss)
         self._evaluate_losses.append(evaluate_loss)
+        self._accuracies.append(accuracy)
 
     def plot(self) -> None:
-        plt.xlabel('epoch')
-        plt.ylabel('loss')
-        plt.plot(self._epochs, self._train_losses, 'b', label='train_loss')
-        plt.plot(self._epochs, self._evaluate_losses, 'r', label='valid_loss')
-        plt.legend()
-        plt.title("FashionMNIST Classifier")
+        _, ax1 = plt.subplots()
+
+        # Plot losses on the first y-axis
+        ax1.set_xlabel('epoch')
+        ax1.set_ylabel('loss', color='tab:red')
+        ax1.plot(self._epochs, self._train_losses, 'b', label='Train Loss')
+        ax1.plot(self._epochs, self._evaluate_losses, 'r', label='Validation Loss')
+        ax1.tick_params(axis='y', labelcolor='tab:red')
+        ax1.legend(loc='upper left')
+
+        # Create a second y-axis for accuracy
+        ax2 = ax1.twinx()
+        ax2.set_ylabel('accuracy (%)', color='tab:blue')
+        ax2.plot(self._epochs, self._accuracies, 'g', label='Accuracy', linestyle='--')
+        ax2.tick_params(axis='y', labelcolor='tab:blue')
+        ax2.set_ylim(0, 1.0)
+        ax2.legend(loc='upper right')
+
+        plt.title("Manual-grad FashionMNIST Classifier")
         plt.show()
 
 
 def main(
-    show_examples: bool = False
+    preview_dataset: bool = True
 ) -> None:
     num_channels = 1
     width = 32
@@ -357,10 +382,10 @@ def main(
     max_epochs = 200
     learning_rate = 0.01
 
-    dataset = FashionMNIST(resize=(width, height))
-    if show_examples:
+    dataset = FashionMNISTDataset(resize=(width, height))
+    if preview_dataset:
         batch = next(iter(dataset.get_data_loader(False)))
-        dataset.visualize(batch[:16])
+        dataset.visualize(batch)
 
     num_classes = len(dataset.labels)
     model = ManualGradClassifierModel(
@@ -369,16 +394,14 @@ def main(
     loss_measurer = nn.CrossEntropyLoss()
     trainer = Trainer(model, dataset, loss_measurer)
     evaluator = Evaluator(model, dataset, loss_measurer, num_samples)
-    plotter = LossPlotter()
+    plotter = MetricsPlotter()
 
     for epoch in range(max_epochs):
         train_loss = trainer.train()
         evaluator.evaluate()
-        evaluate_loss = evaluator.loss
-        accuracy = evaluator.accuracy
         logger.info("epoch #{}, train_loss = {}, evaluate_loss = {}, accuracy = {}",
-                    epoch, train_loss, evaluate_loss, accuracy)
-        plotter.add(epoch, train_loss, evaluate_loss)
+                    epoch, train_loss, evaluator.loss, evaluator.accuracy)
+        plotter.add(epoch, train_loss, evaluator.loss, evaluator.accuracy)
 
     dataset.visualize(evaluator.samples)
     plotter.plot()
@@ -389,4 +412,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main(True)
+    main()
