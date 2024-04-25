@@ -1,8 +1,10 @@
 # pylint:disable=missing-function-docstring, missing-module-docstring, missing-class-docstring
 # pylint:disable=too-few-public-methods, too-many-arguments
+# pylint:disable=import-outside-toplevel
 
 import math
 import random
+from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
@@ -61,12 +63,19 @@ class FashionMNISTDataset:
         titles: list[str] | None = None,
         scale: float = 2.0,
         row_spacing: float = 0.5,
+        save_filename: str | None = None,
     ) -> None:
         figsize = (num_cols * scale, num_rows * scale)
-        _, axes = plt.subplots(num_rows,
-                               num_cols,
-                               figsize=figsize,
-                               gridspec_kw={'hspace': row_spacing})
+        fig, axes = plt.subplots(num_rows,
+                                 num_cols,
+                                 figsize=figsize,
+                                 gridspec_kw={'hspace': row_spacing})
+
+        if TYPE_CHECKING:
+            # Using type-checking to suppress pyright error when using fig, like:
+            # error: Cannot access attribute "savefig" for class "FigureBase"
+            assert isinstance(fig, plt.Figure)
+
         axes = axes.flatten()
         for i, (ax, image) in enumerate(zip(axes, images)):
             image = image.numpy().squeeze()
@@ -75,12 +84,16 @@ class FashionMNISTDataset:
             ax.axes.get_yaxis().set_visible(False)
             if titles is not None:
                 ax.set_title(titles[i])
+
         plt.show()
+        if save_filename is not None:
+            fig.savefig(save_filename)
 
     def visualize(
         self,
         batch: list[torch.Tensor],
         ncols: int = 8,
+        save_filename: str | None = None,
     ) -> None:
         X: torch.Tensor | None = None
         labels = []
@@ -99,7 +112,7 @@ class FashionMNISTDataset:
 
         X = X.squeeze(1)  # Remove channel dimension for grayscale image
         nrows = math.ceil(len(X) / ncols)
-        self.show_images(X, nrows, ncols, titles=labels)
+        self.show_images(X, nrows, ncols, titles=labels, save_filename=save_filename)
 
 
 class ManualGradClassifierModel(nn.Module):
@@ -183,7 +196,7 @@ class Trainer(TransformMixin):
     def __init__(
         self,
         model: ManualGradClassifierModel,
-        dataset: Dataset,
+        dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
     ) -> None:
         self._model = model
@@ -266,7 +279,7 @@ class Evaluator(TransformMixin):
     def __init__(
         self,
         model: ManualGradClassifierModel,
-        dataset: Dataset,
+        dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
         num_samples: int = 8,
     ) -> None:
@@ -350,7 +363,14 @@ class MetricsPlotter:
         self._accuracies.append(accuracy)
 
     def plot(self) -> None:
-        _, ax1 = plt.subplots()
+        fig, ax1 = plt.subplots()
+
+        if TYPE_CHECKING:
+            # Using type-checking to suppress pyright errors like:
+            # error: Cannot access attribute "set_xlabel" for class "ndarray[Any, dtype[Any]]"
+            from matplotlib.axes._axes import Axes
+            assert isinstance(fig, plt.Figure)
+            assert isinstance(ax1, Axes)
 
         # Plot losses on the first y-axis
         ax1.set_xlabel('epoch')
@@ -362,13 +382,14 @@ class MetricsPlotter:
 
         # Create a second y-axis for accuracy
         ax2 = ax1.twinx()
-        ax2.set_ylabel('accuracy (%)', color='tab:blue')
+        ax2.set_ylabel('accuracy', color='tab:blue')
         ax2.plot(self._epochs, self._accuracies, 'g', label='Accuracy', linestyle='--')
         ax2.tick_params(axis='y', labelcolor='tab:blue')
         ax2.set_ylim(0, 1.0)
         ax2.legend(loc='upper right')
 
         plt.title("Manual-grad FashionMNIST Classifier")
+        fig.savefig("metrics.png")
         plt.show()
 
 
@@ -376,10 +397,10 @@ def main(
     preview_dataset: bool = True
 ) -> None:
     num_channels = 1
-    width = 32
-    height = 32
+    width = 24
+    height = 24
     num_samples = 8
-    max_epochs = 200
+    max_epochs = 150
     learning_rate = 0.01
 
     dataset = FashionMNISTDataset(resize=(width, height))
@@ -403,7 +424,7 @@ def main(
                     epoch, train_loss, evaluator.loss, evaluator.accuracy)
         plotter.add(epoch, train_loss, evaluator.loss, evaluator.accuracy)
 
-    dataset.visualize(evaluator.samples)
+    dataset.visualize(evaluator.samples, save_filename="pred_samples.png")
     plotter.plot()
 
     logger.info("Done!")
