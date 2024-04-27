@@ -3,7 +3,6 @@
 # pylint:disable=import-outside-toplevel
 
 import math
-import random
 from typing import TYPE_CHECKING
 
 import torch
@@ -12,6 +11,14 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms, datasets
 import matplotlib.pyplot as plt
 from loguru import logger
+
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
 
 
 class FashionMNISTDataset:
@@ -27,9 +34,9 @@ class FashionMNISTDataset:
         transform = transforms.Compose(
             [transforms.Resize(resize), transforms.ToTensor()])
         self.train: Dataset = datasets.FashionMNIST(
-            root=".", train=True, transform=transform, download=True)
+            root="..", train=True, transform=transform, download=True)
         self.valid: Dataset = datasets.FashionMNIST(
-            root=".", train=False, transform=transform, download=True)
+            root="..", train=False, transform=transform, download=True)
 
     def get_data_loader(self, train: bool = True) -> DataLoader:
         """
@@ -40,7 +47,7 @@ class FashionMNISTDataset:
         - y: Label tensor of shape (batch_size,)
         """
         dataset = self.train if train else self.valid
-        return DataLoader(dataset, self.batch_size, shuffle=train)
+        return DataLoader(dataset, self.batch_size, shuffle=train, pin_memory=True)#, pin_memory_device=device)
 
     def text_labels(self, indices: torch.Tensor) -> list[str]:
         """Returns the text labels for the given indices."""
@@ -115,70 +122,28 @@ class FashionMNISTDataset:
         self.show_images(X, nrows, ncols, titles=labels, save_filename=save_filename)
 
 
-class ManualGradClassifierModel(nn.Module):
+class ConciseClassifierModel(nn.Module):
     def __init__(
         self,
-        learning_rate: float,
-        num_channels: int,
-        width: int,
-        height: int,
         num_classes: int,
+        # num_channels: int,
+        # width: int,
+        # height: int,
     ) -> None:
         super().__init__()
 
-        self._lr = learning_rate
-        self._weights = torch.normal(
-            mean=0,
-            std=random.random(),
-            size=(width * height * num_channels,
-                  num_classes) # shape = num_features * num_classes
-            )
-        self._bias = torch.zeros(
-            size=(num_classes,)
+        self._net = nn.Sequential(
+            nn.Flatten(),
+            nn.LazyLinear(out_features=num_classes),
+            # We don't need a softmax layer, as the loss function will take
+            # care of it (cross_entropy uses "LogSumExp trick" internally).
         )
-        self._logits: torch.Tensor | None = None
 
     def forward(
         self,
         X: torch.Tensor
     ) -> torch.Tensor:
-        """
-        Forward pass of the model.
-
-        Returns the softmax of shape (num_rows, num_classes).
-        """
-        self._logits = X @ self._weights + self._bias
-        return nn.functional.softmax(self._logits, dim=1)
-
-    def backward(
-        self,
-        X: torch.Tensor,
-        y: torch.Tensor,
-    ) -> None:
-        assert self._logits is not None, \
-            "No logits to backpropagate. Call forward() first."
-        assert self._logits.shape == y.shape, \
-            f"Shapes mismatch between logits({self._logits.shape}) and y({y.shape})."
-
-        #
-        # Shape of cross_entropy_grad
-        #   = num_rows * num_classes
-        #
-        cross_entropy_grad = self._logits - y
-        batch_size = X.shape[0]
-
-        #
-        # Shape of weights_grad
-        #   = X.T(num_features * num_rows) @ cross_entropy_grad(num_rows * num_classes)
-        #   = num_features * num_classes
-        # matches the shape of self._weights
-        #
-        weights_grad = X.T @ cross_entropy_grad / batch_size
-        self._weights -= self._lr * weights_grad
-
-        # The deriviate of logits with respect to bias is 1.
-        bias_grad = cross_entropy_grad.sum(dim=0) / batch_size
-        self._bias -= self._lr * bias_grad
+        return self._net(X)
 
 
 class TransformMixin:
@@ -192,31 +157,45 @@ class TransformMixin:
         return y.argmax(dim=1)
 
 
+def loss_fn(
+    y_pred: torch.Tensor,
+    y: torch.Tensor
+) -> torch.Tensor:
+    return nn.functional.cross_entropy(y_pred, y)
+
+
 class Trainer(TransformMixin):
     def __init__(
         self,
-        model: ManualGradClassifierModel,
+        model: ConciseClassifierModel,
         dataset: FashionMNISTDataset,
-        loss_measurer: nn.CrossEntropyLoss,
+        optimizer: torch.optim.Optimizer
     ) -> None:
         self._model = model
         self._dataset = dataset
-        self._loss_measurer = loss_measurer
+        self._optimizer = optimizer
 
-    def train(self) -> float:
+    def fit(self) -> float:
         num_batches = 0
-        loss = 0.0
+        total_loss = torch.zeros([]).to(device)
+
+        self._model.train()
         for X, y in self._dataset.get_data_loader(train=True):
-            X_ = self.flatten(X)
-            y_ = self.one_hot(y)
+            X_ = X.to(device)
+            y_indices = y.to(device)
 
-            y_pred = self._model(X_)
-            self._model.backward(X_, y_)
+            y_logits_pred = self._model(X_)
+            loss = loss_fn(y_logits_pred, y_indices)
 
-            loss += self._loss_measurer(y_pred, y_)
+            # Backpropagation
+            loss.backward()
+            self._optimizer.step()
+            self._optimizer.zero_grad()
+
+            total_loss += loss.item()
             num_batches += 1
 
-        return loss / num_batches
+        return total_loss.item() / num_batches
 
 
 class Samples:
@@ -278,14 +257,12 @@ class Samples:
 class Evaluator(TransformMixin):
     def __init__(
         self,
-        model: ManualGradClassifierModel,
+        model: ConciseClassifierModel,
         dataset: FashionMNISTDataset,
-        loss_measurer: nn.CrossEntropyLoss,
         num_samples: int = 8,
     ) -> None:
         self._model = model
         self._dataset = dataset
-        self._loss_measurer = loss_measurer
         self._loss = 0.0
         self._accuracy = 0.0
         self._corrects = Samples(num_samples)
@@ -297,23 +274,25 @@ class Evaluator(TransformMixin):
         correct = 0
         total = 0
 
-        for X, y_indices in self._dataset.get_data_loader(train=False):
-            X_flatten = self.flatten(X)
-            y_one_hot = self.one_hot(y_indices)
+        self._model.eval()
+        with torch.no_grad():
+            for X, y in self._dataset.get_data_loader(train=False):
+                X_ = X.to(device)
+                y_indices = y.to(device)
 
-            y_pred = self._model(X_flatten)
+                y_logits_pred = self._model(X_)
 
-            loss += self._loss_measurer(y_pred, y_one_hot)
-            num_batches += 1
+                loss += loss_fn(y_logits_pred, y_indices).item()
+                num_batches += 1
 
-            y_pred_indices = self.index(y_pred)
-            correct += (y_pred_indices == y_indices).sum().item()
-            total += len(y_indices)
+                y_pred_indices = self.index(y_logits_pred)
+                correct += (y_pred_indices == y_indices).sum().item()
+                total += len(y)
 
-            self._collect_samples(X, y_indices, y_pred_indices)
+                self._collect_samples(X, y_indices, y_pred_indices)
 
-        self._loss = loss / num_batches
-        self._accuracy = correct / total
+            self._loss = loss / num_batches
+            self._accuracy = correct / total
 
     @property
     def samples(self) -> list[torch.Tensor]:
@@ -378,6 +357,7 @@ class MetricsPlotter:
         ax1.plot(self._epochs, self._train_losses, 'b', label='Train Loss')
         ax1.plot(self._epochs, self._evaluate_losses, 'r', label='Validation Loss')
         ax1.tick_params(axis='y', labelcolor='tab:red')
+        ax1.set_ylim(0)
         ax1.legend(loc='upper left')
 
         # Create a second y-axis for accuracy
@@ -388,7 +368,7 @@ class MetricsPlotter:
         ax2.set_ylim(0, 1.0)
         ax2.legend(loc='upper right')
 
-        plt.title("Manual-grad FashionMNIST Classifier")
+        plt.title("Concise FashionMNIST Classifier")
         fig.savefig("metrics.png")
         plt.show()
 
@@ -396,11 +376,10 @@ class MetricsPlotter:
 def main(
     preview_dataset: bool = True
 ) -> None:
-    num_channels = 1
     width = 24
     height = 24
     num_samples = 8
-    max_epochs = 150
+    max_epochs = 50
     learning_rate = 0.01
 
     dataset = FashionMNISTDataset(resize=(width, height))
@@ -409,16 +388,16 @@ def main(
         dataset.visualize(batch)
 
     num_classes = len(dataset.labels)
-    model = ManualGradClassifierModel(
-        learning_rate, num_channels, width, height, num_classes)
+    model = ConciseClassifierModel(num_classes).to(device)
 
-    loss_measurer = nn.CrossEntropyLoss()
-    trainer = Trainer(model, dataset, loss_measurer)
-    evaluator = Evaluator(model, dataset, loss_measurer, num_samples)
+    # loss_measurer = nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    trainer = Trainer(model, dataset, optimizer)
+    evaluator = Evaluator(model, dataset, num_samples)
     plotter = MetricsPlotter()
 
     for epoch in range(max_epochs):
-        train_loss = trainer.train()
+        train_loss = trainer.fit()
         evaluator.evaluate()
         logger.info("epoch #{}, train_loss = {}, evaluate_loss = {}, accuracy = {}",
                     epoch, train_loss, evaluator.loss, evaluator.accuracy)
@@ -429,8 +408,8 @@ def main(
 
     logger.info("Done!")
     # Final output:
-    # epoch #199, train_loss = 2.2297.., evaluate_loss = 2.2308..., accuracy = 0.7887
+    # epoch #149, train_loss = 2.23049, evaluate_loss = 2.232175, accuracy = 0.77
 
 
 if __name__ == "__main__":
-    main()
+    main(False)
