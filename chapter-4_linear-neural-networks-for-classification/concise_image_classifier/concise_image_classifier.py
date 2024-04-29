@@ -143,6 +143,11 @@ class ConciseClassifierModel(nn.Module):
         self,
         X: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Forward pass of the model.
+
+        Returns unnormalized logits instead of the softmax results.
+        """
         return self._net(X)
 
 
@@ -390,7 +395,6 @@ def main(
     num_classes = len(dataset.labels)
     model = ConciseClassifierModel(num_classes).to(device)
 
-    # loss_measurer = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
     trainer = Trainer(model, dataset, optimizer)
     evaluator = Evaluator(model, dataset, num_samples)
@@ -408,7 +412,7 @@ def main(
 
     logger.info("Done!")
     # Final output:
-    # epoch #149, train_loss = 2.23049, evaluate_loss = 2.232175, accuracy = 0.77
+    # epoch #49, train_loss = 0.4404, evaluate_loss = 0.4723, accuracy = 0.833
 
 
 if __name__ == "__main__":

@@ -145,26 +145,24 @@ class ManualGradClassifierModel(nn.Module):
         """
         Forward pass of the model.
 
-        Returns the softmax of shape (num_rows, num_classes).
+        Returns unnormalized logits instead of the softmax results.
         """
-        self._logits = X @ self._weights + self._bias
-        return nn.functional.softmax(self._logits, dim=1)
+        return X @ self._weights + self._bias
 
     def backward(
         self,
         X: torch.Tensor,
         y: torch.Tensor,
+        y_logits_pred: torch.Tensor,
     ) -> None:
-        assert self._logits is not None, \
-            "No logits to backpropagate. Call forward() first."
-        assert self._logits.shape == y.shape, \
-            f"Shapes mismatch between logits({self._logits.shape}) and y({y.shape})."
+        assert y_logits_pred.shape == y.shape, \
+            f"Shapes mismatch between logits({y_logits_pred.shape}) and y({y.shape})."
 
         #
         # Shape of cross_entropy_grad
         #   = num_rows * num_classes
         #
-        cross_entropy_grad = self._logits - y
+        cross_entropy_grad = y_logits_pred - y
         batch_size = X.shape[0]
 
         #
@@ -210,10 +208,10 @@ class Trainer(TransformMixin):
             X_flatten = self.flatten(X)
             y_one_hot = self.one_hot(y)
 
-            y_pred = self._model(X_flatten)
-            self._model.backward(X_flatten, y_one_hot)
+            y_logits_pred = self._model(X_flatten)
+            self._model.backward(X_flatten, y_one_hot, y_logits_pred)
 
-            loss += self._loss_measurer(y_pred, y_one_hot)
+            loss += self._loss_measurer(y_logits_pred, y_one_hot)
             num_batches += 1
 
         return loss / num_batches
@@ -256,7 +254,7 @@ class Samples:
         new = None
         old = getattr(self, attr_name, self._DEFAULT_TENSOR)
         assert isinstance(old, torch.Tensor), \
-            f"invalid attribute type (expected 'torch.Tensor', got {type(old)})"
+            f"Invalid attribute type (expected 'torch.Tensor', got {type(old)})"
 
         if len(old) >= self._max_count:
             return
@@ -301,12 +299,12 @@ class Evaluator(TransformMixin):
             X_flatten = self.flatten(X)
             y_one_hot = self.one_hot(y_indices)
 
-            y_pred = self._model(X_flatten)
+            y_logits_pred = self._model(X_flatten)
 
-            loss += self._loss_measurer(y_pred, y_one_hot)
+            loss += self._loss_measurer(y_logits_pred, y_one_hot)
             num_batches += 1
 
-            y_pred_indices = self.index(y_pred)
+            y_pred_indices = self.index(y_logits_pred)
             correct += (y_pred_indices == y_indices).sum().item()
             total += len(y_indices)
 
@@ -429,8 +427,8 @@ def main(
 
     logger.info("Done!")
     # Final output:
-    # epoch #199, train_loss = 2.2297.., evaluate_loss = 2.2308..., accuracy = 0.7887
+    # epoch #49, train_loss = 1.791, evaluate_loss = 1.795, accuracy = 0.809
 
 
 if __name__ == "__main__":
-    main()
+    main(False)
