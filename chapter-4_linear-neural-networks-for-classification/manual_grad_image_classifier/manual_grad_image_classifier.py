@@ -162,7 +162,8 @@ class ManualGradClassifierModel(nn.Module):
         # Shape of cross_entropy_grad
         #   = num_rows * num_classes
         #
-        cross_entropy_grad = y_logits_pred - y
+        y_pred = nn.functional.softmax(y_logits_pred)
+        cross_entropy_grad = y_pred - y
         batch_size = X.shape[0]
 
         #
