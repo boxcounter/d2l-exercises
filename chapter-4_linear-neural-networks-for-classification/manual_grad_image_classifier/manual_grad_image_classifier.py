@@ -273,6 +273,28 @@ class Samples:
         return result
 
 
+class PredStdev:
+    """Collects prediction (probability distribution) standard deviation."""
+    def __init__(self) -> None:
+        self._y_logits_pred: torch.Tensor | None = None
+
+    def collect(
+        self,
+        y_logits_pred: torch.Tensor,
+    ) -> None:
+        if self._y_logits_pred is None:
+            self._y_logits_pred = y_logits_pred.detach()
+        else:
+            self._y_logits_pred = torch.cat(
+                (self._y_logits_pred, y_logits_pred))
+
+    def get(self) -> tuple[float, float]:
+        assert self._y_logits_pred is not None, "No predictions collected."
+        y_pred = nn.functional.softmax(self._y_logits_pred, dim=1)
+        sd = y_pred.std(dim=1)
+        return (sd.mean().item(), sd.median().item())
+
+
 class Evaluator(TransformMixin):
     def __init__(
         self,
@@ -294,6 +316,7 @@ class Evaluator(TransformMixin):
         loss = 0.0
         correct = 0
         total = 0
+        psd = PredStdev()
 
         for X, y_indices in self._dataset.get_data_loader(train=False):
             X_flatten = self.flatten(X)
@@ -304,6 +327,8 @@ class Evaluator(TransformMixin):
             loss += self._loss_measurer(y_logits_pred, y_one_hot)
             num_batches += 1
 
+            psd.collect(y_logits_pred)
+
             y_pred_indices = self.index(y_logits_pred)
             correct += (y_pred_indices == y_indices).sum().item()
             total += len(y_indices)
@@ -312,6 +337,9 @@ class Evaluator(TransformMixin):
 
         self._loss = loss / num_batches
         self._accuracy = correct / total
+
+        mean, median = psd.get()
+        logger.debug("Prediction stdev: mean = {}, median = {}", mean, median)
 
     @property
     def samples(self) -> list[torch.Tensor]:
