@@ -1,6 +1,7 @@
 # pylint:disable=missing-function-docstring, missing-module-docstring, missing-class-docstring
 # pylint:disable=too-few-public-methods, too-many-arguments
 # pylint:disable=import-outside-toplevel
+# pylint:disable=too-many-locals
 
 import math
 from typing import TYPE_CHECKING
@@ -96,7 +97,7 @@ class FashionMNISTDataset:
         self,
         batch: list[torch.Tensor],
         ncols: int = 8,
-        save_filename: str | None = None,
+        filename: str | None = None,
     ) -> None:
         X: torch.Tensor | None = None
         labels = []
@@ -115,7 +116,7 @@ class FashionMNISTDataset:
 
         X = X.squeeze(1)  # Remove channel dimension for grayscale image
         nrows = math.ceil(len(X) / ncols)
-        self.show_images(X, nrows, ncols, titles=labels, save_filename=save_filename)
+        self.show_images(X, nrows, ncols, titles=labels, save_filename=filename)
 
 
 class MLPScratch(nn.Module):
@@ -259,6 +260,7 @@ class Samples:
 
 
 class PredStdev:
+    """Collects prediction (probability distribution) standard deviation."""
     def __init__(self) -> None:
         self._y_logits_pred: torch.Tensor | None = None
 
@@ -273,7 +275,7 @@ class PredStdev:
                 (self._y_logits_pred, y_logits_pred))
 
     def get(self) -> tuple[float, float]:
-        assert self._y_logits_pred is not None, "No logits collected"
+        assert self._y_logits_pred is not None, "No predictions collected."
         y_pred = nn.functional.softmax(self._y_logits_pred, dim=1)
         sd = y_pred.std(dim=1)
         return (sd.mean().item(), sd.median().item())
@@ -416,7 +418,7 @@ def main(
     num_samples = 8
     max_epochs = 50
     learning_rate = 0.01
-    weight_decay = 0.01
+    weight_decay = 0.1
 
     dataset = FashionMNISTDataset(resize=(width, height))
     if preview_dataset:
@@ -433,7 +435,7 @@ def main(
     trainer = Trainer(model, dataset, loss_measurer, optimizer)
     evaluator = Evaluator(model, dataset, loss_measurer, num_samples)
     plotter = MetricsPlotter(
-        title="FashionMNIST Classifier (MLPScratch)", filename="metrics.png")
+        title="FashionMNIST Classifier (MLP Scratch)", filename="metrics.png")
 
     for epoch in range(max_epochs):
         train_loss = trainer.fit()
@@ -442,7 +444,7 @@ def main(
                     epoch, train_loss, evaluator.loss, evaluator.accuracy)
         plotter.add(epoch, train_loss, evaluator.loss, evaluator.accuracy)
 
-    dataset.visualize(evaluator.samples, save_filename="pred_samples.png")
+    dataset.visualize(evaluator.samples, filename="pred_samples.png")
     plotter.plot()
 
     logger.info("Done!")
