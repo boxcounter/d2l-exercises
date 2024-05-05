@@ -110,17 +110,17 @@ class Trainer:
         self,
     ) -> None:
         num_batches = 0
-        loss = torch.tensor(0.0)
+        total_loss = torch.tensor(0.0)
         for X, y in self._dataloader.get_batch(True):
             self._model.train()
             y_pred = self._model(X)
             loss = self._loss_measurer(y_pred, y)
             self._model.backward(loss)
 
-            loss += self._loss_measurer(y_pred, y)
+            total_loss += loss
             num_batches += 1
 
-        mean_loss = loss.item() / num_batches
+        mean_loss = total_loss.item() / num_batches
         self._losses.append(mean_loss)
 
     @property
