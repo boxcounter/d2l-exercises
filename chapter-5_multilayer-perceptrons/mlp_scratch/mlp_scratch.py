@@ -281,27 +281,28 @@ class PredStdev:
         return (sd.mean().item(), sd.median().item())
 
 
-class Evaluator(TransformMixin):
+class Validator(TransformMixin):
     def __init__(
         self,
         model: MLPScratch,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
-        num_samples: int = 8,
     ) -> None:
         self._model = model
         self._dataset = dataset
         self._loss_measurer = loss_measurer
-        self._loss = 0.0
-        self._accuracy = 0.0
-        self._corrects = Samples(num_samples)
-        self._wrongs = Samples(num_samples)
 
-    def evaluate(self) -> None:
+    def __call__(
+        self,
+        max_samples: int = 0,
+    ) -> tuple[float, float, list[torch.Tensor]]:
+        """Validates the model and returns loss, accuracy, and samples."""
         num_batches = 0
-        loss = 0.0
-        correct = 0
-        total = 0
+        total_loss = 0.0
+        num_correct = 0
+        num_total = 0
+        corrects = Samples(int(max_samples/2))
+        wrongs = Samples(int(max_samples/2))
 
         self._model.eval()
         with torch.inference_mode():
@@ -312,37 +313,29 @@ class Evaluator(TransformMixin):
 
                 y_logits_pred = self._model(X_flatten)
 
-                loss += self._loss_measurer(y_logits_pred, y_one_hot)
+                total_loss += self._loss_measurer(y_logits_pred, y_one_hot)
                 num_batches += 1
 
                 psd.collect(y_logits_pred)
 
                 y_pred_indices = self.index(y_logits_pred)
-                correct += (y_pred_indices == y_indices).sum().item()
-                total += len(y_indices)
+                num_correct += (y_pred_indices == y_indices).sum().item()
+                num_total += len(y_indices)
 
-                self._collect_samples(X, y_indices, y_pred_indices)
-
-            self._loss = loss / num_batches
-            self._accuracy = correct / total
+                self._collect_samples(corrects, wrongs, X, y_indices, y_pred_indices)
 
             mean, median = psd.get()
             logger.debug("Prediction stdev: mean = {}, median = {}", mean, median)
 
-    @property
-    def samples(self) -> list[torch.Tensor]:
-        return (self._corrects | self._wrongs).tensors()
-
-    @property
-    def loss(self) -> float:
-        return self._loss
-
-    @property
-    def accuracy(self) -> float:
-        return self._accuracy
+        mean_loss = total_loss / num_batches
+        accuracy = num_correct / num_total
+        samples = (corrects | wrongs).tensors()
+        return (mean_loss, accuracy, samples)
 
     def _collect_samples(
         self,
+        corrects: Samples,
+        wrongs: Samples,
         X: torch.Tensor,
         y: torch.Tensor,
         y_pred: torch.Tensor,
@@ -353,7 +346,7 @@ class Evaluator(TransformMixin):
             f"Length mismatch, len(X) = {len(X)}, len(y_pred) = {len(y_pred)}"
 
         for x, y_, y_p_ in zip(X, y, y_pred):
-            samples = self._corrects if torch.equal(y_, y_p_) else self._wrongs
+            samples = corrects if torch.equal(y_, y_p_) else wrongs
             samples.add(x, y_, y_p_)
 
 
@@ -415,10 +408,10 @@ def main(
     num_channels = 1
     width = 24
     height = 24
-    num_samples = 8
+    num_samples = 16
     max_epochs = 50
     learning_rate = 0.01
-    weight_decay = 0.1
+    weight_decay = 0.01
 
     dataset = FashionMNISTDataset(resize=(width, height))
     if preview_dataset:
@@ -433,23 +426,25 @@ def main(
                           lr=learning_rate,
                           weight_decay=weight_decay)
     trainer = Trainer(model, dataset, loss_measurer, optimizer)
-    evaluator = Evaluator(model, dataset, loss_measurer, num_samples)
+    validator = Validator(model, dataset, loss_measurer)
     plotter = MetricsPlotter(
         title="FashionMNIST Classifier (MLP Scratch)", filename="metrics.png")
 
+    samples: list[torch.Tensor] = []
     for epoch in range(max_epochs):
         train_loss = trainer.fit()
-        evaluator.evaluate()
-        logger.info("epoch #{}, train_loss = {}, evaluate_loss = {}, accuracy = {}",
-                    epoch, train_loss, evaluator.loss, evaluator.accuracy)
-        plotter.add(epoch, train_loss, evaluator.loss, evaluator.accuracy)
+        validate_loss, accuracy, samples = validator(
+            num_samples if epoch == max_epochs - 1 else 0)
+        logger.info("epoch #{}, train_loss = {}, validate_loss = {}, accuracy = {}",
+                    epoch, train_loss, validate_loss, accuracy)
+        plotter.add(epoch, train_loss, validate_loss, accuracy)
 
-    dataset.visualize(evaluator.samples, filename="pred_samples.png")
+    dataset.visualize(samples, filename="pred_samples.png")
     plotter.plot()
 
     logger.info("Done!")
     # Final output:
-    # epoch #49, train_loss = 0.4849, evaluate_loss = 0.5070, accuracy = 0.8339
+    # epoch #49, train_loss = 0.4836, validate_loss = 0.5054, accuracy = 0.8347
 
 
 if __name__ == "__main__":
