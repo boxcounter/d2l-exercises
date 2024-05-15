@@ -119,23 +119,71 @@ class FashionMNISTDataset:
         self.show_images(X, nrows, ncols, titles=labels, save_filename=filename)
 
 
-class MLP(nn.Module):
+class DropoutMLPScratch(nn.Module):
     def __init__(
         self,
+        num_channels: int,
+        pixels_width: int,
+        pixels_height: int,
         num_labels: int,
-        num_hidden_units: int = 256,
+        num_hidden_units: tuple[int, int] = (256, 256),
+        dropout_probabilities: tuple[float, float] = (0.5, 0.5),
     ) -> None:
+        assert len(num_hidden_units) == 2 and len(dropout_probabilities) == 2, \
+            "Only two hidden layers are supported."
+
+        assert all(0.0 <= p <= 1.0 for p in dropout_probabilities), \
+            "Dropout probabilities must be in the range [0.0, 1.0]."
+
         super().__init__()
 
-        self._net = nn.Sequential(
-            nn.Flatten(),
-            nn.LazyLinear(num_hidden_units),
-            nn.ReLU(),
-            nn.LazyLinear(num_labels),
-        )
+        num_features = num_channels * pixels_width * pixels_height
+        self._W1 = nn.Parameter(torch.randn((num_features, num_hidden_units[0])))
+        self._b1 = nn.Parameter(torch.zeros((1, num_hidden_units[0])))
+
+        self._W2 = nn.Parameter(torch.randn((num_hidden_units[0], num_hidden_units[1])))
+        self._b2 = nn.Parameter(torch.zeros(1, num_hidden_units[1]))
+
+        self._W3 = nn.Parameter(torch.randn((num_hidden_units[1], num_labels)))
+        self._b3 = nn.Parameter(torch.zeros(1, num_labels))
+
+        self._dropout_probabilities = dropout_probabilities
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        return self._net(X)
+        assert len(X.shape) == 2, "X must be flattened."
+
+        # The first hidden layer
+        H1 = X @ self._W1 + self._b1
+        H1 = self.relu(H1)
+
+        if self.training:
+            H1 = self.dropout(H1, self._dropout_probabilities[0])
+
+        # The second hidden layer
+        H2 = H1 @ self._W2 + self._b2
+        H2 = self.relu(H2)
+
+        if self.training:
+            H2 = self.dropout(H2, self._dropout_probabilities[1])
+
+        # The output layer
+        H3 = H2 @ self._W3 + self._b3
+        # We don't need an activiation function for the last hidden layer.
+
+        return H3
+
+    @staticmethod
+    def relu(H: torch.Tensor) -> torch.Tensor:
+        zeros = torch.zeros_like(H)
+        return torch.max(H, zeros)
+
+    @staticmethod
+    def dropout(
+        X: torch.Tensor,
+        probability: float,
+    ) -> torch.Tensor:
+        mask = (torch.rand(X.shape) > probability).float()
+        return (X * mask) / (1.0 - probability)
 
 
 class TransformMixin:
@@ -152,7 +200,7 @@ class TransformMixin:
 class Trainer(TransformMixin):
     def __init__(
         self,
-        model: MLP,
+        model: DropoutMLPScratch,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
         optimizer: torch.optim.Optimizer,
@@ -266,7 +314,7 @@ class PredStdev:
 class Validator(TransformMixin):
     def __init__(
         self,
-        model: MLP,
+        model: DropoutMLPScratch,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
     ) -> None:
@@ -307,7 +355,7 @@ class Validator(TransformMixin):
                 self._collect_samples(corrects, wrongs, X, y_indices, y_pred_indices)
 
             mean, median = psd.get()
-            logger.debug("Prediction stdev: mean = {:.3f}, median = {:.3f}", mean, median)
+            logger.debug("Prediction stdev: mean = {}, median = {}", mean, median)
 
         mean_loss = total_loss / num_batches
         accuracy = num_correct / num_total
@@ -387,36 +435,39 @@ class MetricsPlotter:
 def main(
     preview_dataset: bool = True
 ) -> None:
+    num_channels = 1
     width = 24
     height = 24
     num_samples = 16
     max_epochs = 50
     learning_rate = 0.01
     weight_decay = 0.01
+    num_hidden_units = (255, 255)
+    dropout_probabilities = (0.5, 0.5)
 
     dataset = FashionMNISTDataset(resize=(width, height))
     if preview_dataset:
         batch = next(iter(dataset.get_data_loader(False)))
         dataset.visualize(batch)
 
-    model = MLP(dataset.num_labels)
+    model = DropoutMLPScratch(
+        num_channels, width, height, dataset.num_labels, num_hidden_units, dropout_probabilities)
+
     loss_measurer = nn.CrossEntropyLoss()
     optimizer = optim.SGD(params=model.parameters(),
                           lr=learning_rate,
                           weight_decay=weight_decay)
-
     trainer = Trainer(model, dataset, loss_measurer, optimizer)
     validator = Validator(model, dataset, loss_measurer)
     plotter = MetricsPlotter(
-        title="FashionMNIST Classifier (MLP Concise)", filename="metrics.png")
+        title="FashionMNIST Classifier (Dropout MLP Scratch)", filename="metrics.png")
 
     samples: list[torch.Tensor] = []
     for epoch in range(max_epochs):
         train_loss = trainer.fit()
         validate_loss, accuracy, samples = validator(
             num_samples if epoch == max_epochs - 1 else 0)
-
-        logger.info("epoch #{}, train_loss = {:.3f}, validate_loss = {:.3f}, accuracy = {:.1%}",
+        logger.info("epoch #{}, train_loss = {:.3f}, validate_loss = {:.3f}, accuracy = {:.3f}",
                     epoch, train_loss, validate_loss, accuracy)
         plotter.add(epoch, train_loss, validate_loss, accuracy)
 
@@ -425,7 +476,7 @@ def main(
 
     logger.info("Done!")
     # Final output:
-    # epoch #49, train_loss = 0.493, validate_loss = 0.516, accuracy = 82.6%
+    # epoch #49, train_loss = 0.675, validate_loss = 0.570, accuracy = 0.809
 
 
 if __name__ == "__main__":

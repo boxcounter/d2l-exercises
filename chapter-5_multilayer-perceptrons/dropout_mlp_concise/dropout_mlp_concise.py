@@ -119,18 +119,29 @@ class FashionMNISTDataset:
         self.show_images(X, nrows, ncols, titles=labels, save_filename=filename)
 
 
-class MLP(nn.Module):
+class DropoutMLP(nn.Module):
     def __init__(
         self,
         num_labels: int,
-        num_hidden_units: int = 256,
+        num_hidden_units: tuple[int, int] = (256, 256),
+        dropout_probabilities: tuple[float, float] = (0.5, 0.5),
     ) -> None:
+        assert len(num_hidden_units) == 2 and len(dropout_probabilities) == 2, \
+            "Only two hidden layers are supported."
+
+        assert all(0.0 <= p <= 1.0 for p in dropout_probabilities), \
+            "Dropout probabilities must be in the range [0.0, 1.0]."
+
         super().__init__()
 
         self._net = nn.Sequential(
             nn.Flatten(),
-            nn.LazyLinear(num_hidden_units),
+            nn.LazyLinear(num_hidden_units[0]),
             nn.ReLU(),
+            nn.Dropout(dropout_probabilities[0]),
+            nn.LazyLinear(num_hidden_units[1]),
+            nn.ReLU(),
+            nn.Dropout(dropout_probabilities[1]),
             nn.LazyLinear(num_labels),
         )
 
@@ -152,7 +163,7 @@ class TransformMixin:
 class Trainer(TransformMixin):
     def __init__(
         self,
-        model: MLP,
+        model: DropoutMLP,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
         optimizer: torch.optim.Optimizer,
@@ -266,7 +277,7 @@ class PredStdev:
 class Validator(TransformMixin):
     def __init__(
         self,
-        model: MLP,
+        model: DropoutMLP,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
     ) -> None:
@@ -393,13 +404,15 @@ def main(
     max_epochs = 50
     learning_rate = 0.01
     weight_decay = 0.01
+    num_hidden_units = (255, 255)
+    dropout_probabilities = (0.5, 0.5)
 
     dataset = FashionMNISTDataset(resize=(width, height))
     if preview_dataset:
         batch = next(iter(dataset.get_data_loader(False)))
         dataset.visualize(batch)
 
-    model = MLP(dataset.num_labels)
+    model = DropoutMLP(dataset.num_labels, num_hidden_units, dropout_probabilities)
     loss_measurer = nn.CrossEntropyLoss()
     optimizer = optim.SGD(params=model.parameters(),
                           lr=learning_rate,
@@ -408,7 +421,7 @@ def main(
     trainer = Trainer(model, dataset, loss_measurer, optimizer)
     validator = Validator(model, dataset, loss_measurer)
     plotter = MetricsPlotter(
-        title="FashionMNIST Classifier (MLP Concise)", filename="metrics.png")
+        title="FashionMNIST Classifier (Dropout MLP Concise)", filename="metrics.png")
 
     samples: list[torch.Tensor] = []
     for epoch in range(max_epochs):
@@ -425,7 +438,7 @@ def main(
 
     logger.info("Done!")
     # Final output:
-    # epoch #49, train_loss = 0.493, validate_loss = 0.516, accuracy = 82.6%
+    # epoch #49, train_loss = 0.529, validate_loss = 0.498, accuracy = 82.5%
 
 
 if __name__ == "__main__":

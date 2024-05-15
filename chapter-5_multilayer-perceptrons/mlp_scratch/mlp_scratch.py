@@ -144,11 +144,8 @@ class MLPScratch(nn.Module):
         H1 = X @ self._W1 + self._b1
         H1 = self.relu(H1)
 
-        # The second hidden layer
-        H2 = H1 @ self._W2 + self._b2
-        # We don't need an activiation function for the last hidden layer.
-
-        return H2
+        # The output layer
+        return H1 @ self._W2 + self._b2
 
     @staticmethod
     def relu(H: torch.Tensor) -> torch.Tensor:
@@ -392,7 +389,7 @@ class MetricsPlotter:
         # Create a second y-axis for accuracy
         ax2 = ax1.twinx()
         ax2.set_ylabel('accuracy', color='tab:blue')
-        ax2.plot(self._epochs, self._accuracies, 'g', label='Accuracy', linestyle='--')
+        ax2.plot(self._epochs, self._accuracies, 'g', label='Validation Accuracy', linestyle='--')
         ax2.tick_params(axis='y', labelcolor='tab:blue')
         ax2.set_ylim(0, 1.0)
         ax2.legend(loc='upper right')
@@ -435,7 +432,7 @@ def main(
         train_loss = trainer.fit()
         validate_loss, accuracy, samples = validator(
             num_samples if epoch == max_epochs - 1 else 0)
-        logger.info("epoch #{}, train_loss = {}, validate_loss = {}, accuracy = {}",
+        logger.info("epoch #{}, train_loss = {:.3f}, validate_loss = {:.3f}, accuracy = {:.1%}",
                     epoch, train_loss, validate_loss, accuracy)
         plotter.add(epoch, train_loss, validate_loss, accuracy)
 
@@ -444,7 +441,7 @@ def main(
 
     logger.info("Done!")
     # Final output:
-    # epoch #49, train_loss = 0.4836, validate_loss = 0.5054, accuracy = 0.8347
+    # epoch #49, train_loss = 0.493, validate_loss = 0.516, accuracy = 82.6%
 
 
 if __name__ == "__main__":
