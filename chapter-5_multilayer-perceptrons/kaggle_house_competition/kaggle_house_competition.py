@@ -19,21 +19,24 @@ import matplotlib.pylab as plt
 
 
 class KaggleHouseDateset:
+    id_label = 'Id'
+    y_label = 'SalePrice'
+
     def __init__(
         self,
         train_data: pd.DataFrame,
         test_data: pd.DataFrame,
         num_folds: int = 5,
     ) -> None:
-        self._train_folds = self._fold_data(self._preprocess_data(train_data), num_folds)
-        self._test_data = self._tensor_from_pandas(self._preprocess_data(test_data))
+        train_df, test_df = self._preprocess_data(train_data, test_data)
+        self._train_folds = self._fold_data(train_df, num_folds)
+        self._test_data = self._tensor_from_pandas(test_df)
 
     def get_data_loaders(
         self,
         valid_fold_index: int,
         batch_size: int,
     ) -> tuple[torch.utils.data.DataLoader,
-               torch.utils.data.DataLoader,
                torch.utils.data.DataLoader]:
         logger.debug("creating data loaders, index of valid fold = {}", valid_fold_index)
         assert valid_fold_index < len(self._train_folds)
@@ -59,33 +62,44 @@ class KaggleHouseDateset:
         dataset = torch.utils.data.TensorDataset(valid_features, valid_target)
         valid_data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
 
-        # test data loader
-        dataset = torch.utils.data.TensorDataset(self._test_data)
-        test_data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
+        logger.debug("batches: train = {}, valid = {}",
+                     len(train_data_loader), len(valid_data_loader))
+        return (train_data_loader, valid_data_loader)
 
-        logger.debug("batches: train = {}, valid = {}, test = {}",
-                     len(train_data_loader), len(valid_data_loader), len(test_data_loader))
-        return (train_data_loader, valid_data_loader, test_data_loader)
+    def get_test_data(self) -> torch.Tensor:
+        return self._test_data
 
     @staticmethod
     def _preprocess_data(
-        data: pd.DataFrame,
-    ) -> pd.DataFrame:
-        assert data is not None
+        train_data: pd.DataFrame,
+        test_data: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        assert train_data is not None
+        assert test_data is not None
 
-        # Normalization
-        numeric_column_labels = data.select_dtypes(include='number').columns
-        numeric_columns = data[numeric_column_labels]
-        data[numeric_column_labels] = numeric_columns.apply(
+        id_label = KaggleHouseDateset.id_label
+        y_label = KaggleHouseDateset.y_label
+
+        # Normalize features
+        train_features = train_data.drop(columns=[id_label, y_label])
+        test_features = test_data.drop(columns=id_label)
+        features = pd.concat((train_features, test_features))
+
+        numeric_column_labels = features.select_dtypes(include='number').columns
+        numeric_columns = features[numeric_column_labels]
+        features[numeric_column_labels] = numeric_columns.apply(
             lambda x: (x - x.mean()) / x.std())
 
         # NAN to 0
-        data = data.fillna(0)
+        features = features.fillna(0)
 
         # Categorical to one-hot
-        data = pd.get_dummies(data, dtype=int)
+        features = pd.get_dummies(features, dtype=int)
 
-        return data
+        start_of_test = train_features.shape[0]
+        train_df = features[:start_of_test].copy().assign(**{y_label: train_data[y_label]})
+        test_df = features[start_of_test:].copy()
+        return (train_df, test_df)
 
     @staticmethod
     def _fold_data(
@@ -116,14 +130,16 @@ class KaggleHouseDateset:
     def _tensors_from_pandas(
         data: pd.DataFrame
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        y_label = 'SalePrice'
+        y_label = KaggleHouseDateset.y_label
         assert y_label in data
 
         features = data.drop(columns=y_label)
         target = data[y_label]
         return (
             KaggleHouseDateset._tensor_from_pandas(features),
-            KaggleHouseDateset._tensor_from_pandas(target).reshape(-1, 1),
+            # Use the logarithm helps normalize the differences and allows comparison
+            # of relative errors more effectively.
+            torch.log(KaggleHouseDateset._tensor_from_pandas(target).reshape(-1, 1)),
         )
 
     @staticmethod
@@ -293,7 +309,7 @@ def k_fold(
     k: int,
     max_epochs: int,
     plotter: MetricsPlotter,
-) -> None:
+) -> list[MLP]:
     learning_rate = 0.01
     weight_decay = 0.01
     num_hidden_units = [128, 128]
@@ -314,7 +330,7 @@ def k_fold(
         total_train_loss = 0.0
         total_validate_loss = 0.0
         for i, trainer, validator in zip(range(k), trainers, validators):
-            train_data_loader, valid_data_loader, _ = dataset.get_data_loaders(i, batch_size)
+            train_data_loader, valid_data_loader = dataset.get_data_loaders(i, batch_size)
 
             train_loss = trainer(train_data_loader)
             validate_loss = validator(valid_data_loader)
@@ -333,6 +349,8 @@ def k_fold(
         logger.info("epoch #{}: average_train_loss = {:.3f}, average_validate_loss = {:.3f}",
                     epoch, average_train_loss, average_validate_loss)
 
+    return models
+
 
 def main():
     competition = "house-prices-advanced-regression-techniques"
@@ -342,10 +360,11 @@ def main():
 
     num_folds = 5
     max_epochs = 20
-    k_fold(dataset, num_folds, max_epochs, plotter)
+    models = k_fold(dataset, num_folds, max_epochs, plotter)
     plotter.plot()
 
     # Test
+    test_data = dataset.get_test_data()
     # TODO
 
     logger.info("Done!")

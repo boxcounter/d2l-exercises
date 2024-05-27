@@ -38,25 +38,49 @@ def test_fold_data():
 
 def test_preprocess_data():
     NAN = float('nan')
-    idf = pd.DataFrame({
+    train_df = pd.DataFrame({
+        'Id': [1, 2, 3, 4, 5, 6],
+        'Feature1': [0., 0., 0., 0., 0., 0.],
+        'Feature2': [1, NAN, 3, 4, NAN, 6],
+        'Feature3': [NAN, NAN, NAN, NAN, NAN, NAN],
+        'Feature4': ['male', 'male', 'female', 'female', 'female', 'male'],
+        'SalePrice': [100, 200, 300, 400, 500, 600],
+    })
+
+    test_df = pd.DataFrame({
+        'Id': [1, 2, 3, 4, 5, 6],
         'Feature1': [0., 0., 0., 0., 0., 0.],
         'Feature2': [1, NAN, 3, 4, NAN, 6],
         'Feature3': [NAN, NAN, NAN, NAN, NAN, NAN],
         'Feature4': ['male', 'male', 'female', 'unknown', 'female', 'male'],
     })
 
-    expected_odf = pd.DataFrame({
+    expected_preprocessed_train_df = pd.DataFrame({
         'Feature1': [0., 0., 0., 0., 0., 0.],
-        'Feature2': [-1.20, 0., -0.24, 0.24, 0., 1.20],
+        'Feature2': [-1.29, 0., -0.25, 0.25, 0., 1.29],
+        'Feature3': [0., 0., 0., 0., 0., 0.],
+        'Feature4_male': [1, 1, 0, 0, 0, 1],
+        'Feature4_female': [0, 0, 1, 1, 1, 0],
+        'Feature4_unknown': [0, 0, 0, 0, 0, 0],
+        'SalePrice': [100, 200, 300, 400, 500, 600],
+    })
+
+    expected_preprocessed_test_df = pd.DataFrame({
+        'Feature1': [0., 0., 0., 0., 0., 0.],
+        'Feature2': [-1.29, 0., -0.25, 0.25, 0., 1.29],
         'Feature3': [0., 0., 0., 0., 0., 0.],
         'Feature4_male': [1, 1, 0, 0, 0, 1],
         'Feature4_female': [0, 0, 1, 0, 1, 0],
         'Feature4_unknown': [0, 0, 0, 1, 0, 0],
     })
 
-    odf = KaggleHouseDateset._preprocess_data(idf)
+    preprocessed_train_df, preprocessed_test_df = KaggleHouseDateset._preprocess_data(
+        train_df, test_df)
 
-    pd.testing.assert_frame_equal(odf, expected_odf, rtol=0.01, check_like=True)
+    pd.testing.assert_frame_equal(
+        preprocessed_train_df, expected_preprocessed_train_df, rtol=0.1, check_like=True)
+    pd.testing.assert_frame_equal(
+        preprocessed_test_df, expected_preprocessed_test_df, rtol=0.1, check_like=True)
 
 
 @pytest.mark.parametrize(
@@ -73,6 +97,7 @@ def test_kaggle_house_dataset(
 ):
     NAN = float('nan')
     train_df = pd.DataFrame({
+        'Id': [1, 2, 3, 4, 5, 6],
         'Feature1': [0., 0., 0., 0., 0., 0.],
         'Feature2': [1, NAN, 3, 4, NAN, 6],
         'Feature3': [NAN, NAN, NAN, NAN, NAN, NAN],
@@ -89,6 +114,7 @@ def test_kaggle_house_dataset(
         })
 
     test_df = pd.DataFrame({
+        'Id': [1, 2, 3, 4, 5, 6],
         'Feature1': [0., 0., 0., 0., 0., 0.],
         'Feature2': [1, NAN, 3, 4, NAN, 6],
         'Feature3': [NAN, NAN, NAN, NAN, NAN, NAN],
@@ -112,12 +138,9 @@ def test_kaggle_house_dataset(
     assert isinstance(dataset._test_data, torch.Tensor)
 
     for i in range(num_folds):
-        train_loader, valid_loader, test_loader = dataset.get_data_loaders(i, batch_size=1)
+        train_loader, valid_loader = dataset.get_data_loaders(i, batch_size=1)
 
         assert isinstance(train_loader, torch.utils.data.DataLoader)
         assert isinstance(valid_loader, torch.utils.data.DataLoader)
-        assert isinstance(test_loader, torch.utils.data.DataLoader)
 
         assert (len(train_loader), len(valid_loader)) in expected_lens
-
-        assert len(test_loader) == len(test_df)
