@@ -18,10 +18,12 @@ import torch.utils.data
 import matplotlib.pylab as plt
 
 
-class KaggleHouseDateset:
-    id_label = 'Id'
-    y_label = 'SalePrice'
+ID_LABEL = 'Id'
+Y_LABEL = 'SalePrice'
 
+
+class KaggleHouseDateset:
+    """Kaggle House Prices Competition Dataset"""
     def __init__(
         self,
         train_data: pd.DataFrame,
@@ -38,6 +40,12 @@ class KaggleHouseDateset:
         batch_size: int,
     ) -> tuple[torch.utils.data.DataLoader,
                torch.utils.data.DataLoader]:
+        """
+        Get data loaders for training and validation data.
+
+        Returns:
+            A tuple of training and validation data loaders.
+        """
         logger.debug("creating data loaders, index of valid fold = {}", valid_fold_index)
         assert valid_fold_index < len(self._train_folds)
 
@@ -74,17 +82,22 @@ class KaggleHouseDateset:
         train_data: pd.DataFrame,
         test_data: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Preprocess the data.
+
+        Returns:
+            A tuple of preprocessed training and test data.
+        """
         assert train_data is not None
         assert test_data is not None
 
-        id_label = KaggleHouseDateset.id_label
-        y_label = KaggleHouseDateset.y_label
-
-        # Normalize features
-        train_features = train_data.drop(columns=[id_label, y_label])
-        test_features = test_data.drop(columns=id_label)
+        # Combine train and test data to preprocess them together, otherwise the
+        # one-hot encoding may not be consistent.
+        train_features = train_data.drop(columns=[ID_LABEL, Y_LABEL])
+        test_features = test_data.drop(columns=ID_LABEL)
         features = pd.concat((train_features, test_features))
 
+        # Normalize features
         numeric_column_labels = features.select_dtypes(include='number').columns
         numeric_columns = features[numeric_column_labels]
         features[numeric_column_labels] = numeric_columns.apply(
@@ -97,7 +110,7 @@ class KaggleHouseDateset:
         features = pd.get_dummies(features, dtype=int)
 
         start_of_test = train_features.shape[0]
-        train_df = features[:start_of_test].copy().assign(**{y_label: train_data[y_label]})
+        train_df = features[:start_of_test].copy().assign(**{Y_LABEL: train_data[Y_LABEL]})
         test_df = features[start_of_test:].copy()
         return (train_df, test_df)
 
@@ -106,6 +119,12 @@ class KaggleHouseDateset:
         data: pd.DataFrame,
         num_folds: int,
     ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Split the data into multiple folds.
+
+        Returns:
+            A list of folds, each fold contains a tuple of features and target tensors.
+        """
         assert num_folds > 1
         logger.debug(f"splitting data({data.shape}) into {num_folds} folds")
 
@@ -130,11 +149,16 @@ class KaggleHouseDateset:
     def _tensors_from_pandas(
         data: pd.DataFrame
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        y_label = KaggleHouseDateset.y_label
-        assert y_label in data
+        """
+        Convert pandas DataFrame to tensors.
 
-        features = data.drop(columns=y_label)
-        target = data[y_label]
+        Returns:
+            A tuple of features and target tensors.
+        """
+        assert Y_LABEL in data
+
+        features = data.drop(columns=Y_LABEL)
+        target = data[Y_LABEL]
         return (
             KaggleHouseDateset._tensor_from_pandas(features),
             # Use the logarithm helps normalize the differences and allows comparison
@@ -146,6 +170,7 @@ class KaggleHouseDateset:
     def _tensor_from_pandas(
         data: pd.DataFrame | pd.Series
     ) -> torch.Tensor:
+        """Convert pandas DataFrame or Series to a tensor."""
         return torch.tensor(data.values, dtype=torch.float32)
 
 
@@ -286,6 +311,12 @@ class MetricsPlotter:
 def prepare_dataset(
     competition: str
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Download and prepare the dataset.
+
+    Returns:
+        A tuple of training and test data DataFrames.
+    """
     api = KaggleApi()
     api.authenticate()
     api.competition_download_files(competition)
@@ -310,10 +341,16 @@ def k_fold(
     max_epochs: int,
     plotter: MetricsPlotter,
 ) -> list[MLP]:
+    """
+    Perform k-fold training and cross-validation.
+
+    Returns:
+        A list of trained models.
+    """
     learning_rate = 0.01
     weight_decay = 0.01
-    num_hidden_units = [128, 128]
-    dropout_probabilities = [0.3, 0.3]
+    num_hidden_units = [64] * 6
+    dropout_probabilities = [0.12] * 6
 
     models = []
     trainers = []
@@ -326,7 +363,6 @@ def k_fold(
 
     batch_size = 64
     for epoch in range(max_epochs):
-        logger.debug("----- epoch #{} -----", epoch)
         total_train_loss = 0.0
         total_validate_loss = 0.0
         for i, trainer, validator in zip(range(k), trainers, validators):
@@ -335,7 +371,7 @@ def k_fold(
             train_loss = trainer(train_data_loader)
             validate_loss = validator(valid_data_loader)
 
-            logger.info("epoch #{} - fold #{}: train_loss = {:.3f}, validate_loss = {:.3f}",
+            logger.debug("epoch #{} - fold #{}: train_loss = {:.3f}, validate_loss = {:.3f}",
                         epoch, i, train_loss, validate_loss)
 
             total_train_loss += train_loss
@@ -352,20 +388,55 @@ def k_fold(
     return models
 
 
+def predict(
+    models: list[MLP],
+    features: torch.Tensor
+) -> torch.Tensor:
+    """
+    Predict the target values.
+
+    Returns:
+        A tensor of predicted target values with the shape (n, 1).
+    """
+    prediction = [model(features) for model in models]
+    prediction = torch.exp(
+        torch.cat(prediction, dim=1).mean(dim=1, keepdim=True)
+    ).detach()
+
+    logger.debug("prediction: max = {}, mean = {}, median = {}, std = {}",
+                 prediction.max(), prediction.mean(), prediction.median(), prediction.std())
+    return prediction
+
+
+def save_prediction(
+    ids: pd.Series,
+    pred: torch.Tensor,
+    filename: str,
+) -> None:
+    pd.DataFrame({
+        ID_LABEL: ids,
+        Y_LABEL: pred.squeeze().numpy(),
+        }).to_csv(filename, index=False)
+
+
 def main():
     competition = "house-prices-advanced-regression-techniques"
-    train_data, test_data = prepare_dataset(competition)
-    dataset = KaggleHouseDateset(train_data, test_data)
+    train_df, test_df = prepare_dataset(competition)
+    logger.debug(train_df[Y_LABEL].describe())
+
+    dataset = KaggleHouseDateset(train_df, test_df)
     plotter = MetricsPlotter("Kaggle House Competition", "metrics.png")
 
+    # K-fold training and cross-validation
     num_folds = 5
-    max_epochs = 20
+    max_epochs = 30
     models = k_fold(dataset, num_folds, max_epochs, plotter)
     plotter.plot()
 
-    # Test
-    test_data = dataset.get_test_data()
-    # TODO
+    # Predict
+    test_tensors = dataset.get_test_data()
+    prices_pred = predict(models, test_tensors)
+    save_prediction(test_df[ID_LABEL], prices_pred, "submission.csv")
 
     logger.info("Done!")
 
