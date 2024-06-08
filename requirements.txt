@@ -6,3 +6,4 @@ torchvision
 matplotlib
 kaggle
 pandas
+torchinfo
