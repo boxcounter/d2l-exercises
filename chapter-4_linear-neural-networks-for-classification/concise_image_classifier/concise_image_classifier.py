@@ -415,7 +415,7 @@ def main(
     max_epochs = 50
     learning_rate = 0.01
 
-    dataset = FashionMNISTDataset(resize=(width, height))
+    dataset = FashionMNISTDataset(resize=(height, width))
     if preview_dataset:
         batch = next(iter(dataset.get_data_loader(False)))
         dataset.visualize(batch)

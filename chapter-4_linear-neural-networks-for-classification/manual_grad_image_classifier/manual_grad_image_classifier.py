@@ -325,7 +325,7 @@ class Evaluator(TransformMixin):
 
             y_logits_pred = self._model(X_flatten)
 
-            loss += self._loss_measurer(y_logits_pred, y_one_hot)
+            loss += self._loss_measurer(y_logits_pred, y_one_hot).item()
             num_batches += 1
 
             psd.collect(y_logits_pred)
@@ -430,7 +430,7 @@ def main(
     max_epochs = 50
     learning_rate = 0.01
 
-    dataset = FashionMNISTDataset(resize=(width, height))
+    dataset = FashionMNISTDataset(resize=(height, width))
     if preview_dataset:
         batch = next(iter(dataset.get_data_loader(False)))
         dataset.visualize(batch)
