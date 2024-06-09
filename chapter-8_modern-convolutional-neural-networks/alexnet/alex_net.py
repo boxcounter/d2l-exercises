@@ -6,7 +6,6 @@
 import dataclasses
 import math
 import time
-from typing import TYPE_CHECKING
 
 import torch
 from torch import nn, optim
@@ -42,9 +41,9 @@ class FashionMNISTDataset:
             transforms.Normalize((0.5,), (0.5,)),
             ])
         self.train: Dataset = datasets.FashionMNIST(
-            root=".", train=True, transform=transform, download=True)
+            root="..", train=True, transform=transform, download=True)
         self.valid: Dataset = datasets.FashionMNIST(
-            root=".", train=False, transform=transform, download=True)
+            root="..", train=False, transform=transform, download=True)
 
     def get_data_loader(self, train: bool = True) -> DataLoader:
         """
@@ -89,11 +88,6 @@ class FashionMNISTDataset:
                                  num_cols,
                                  figsize=figsize,
                                  gridspec_kw={'hspace': row_spacing})
-
-        if TYPE_CHECKING:
-            # Using type-checking to suppress pyright error when using fig, like:
-            # error: Cannot access attribute "savefig" for class "FigureBase"
-            assert isinstance(fig, plt.Figure)
 
         axes = axes.flatten()
         for i, (ax, image) in enumerate(zip(axes, images)):
@@ -149,12 +143,12 @@ class PoolParam:
     padding: int = 0
 
 
-class LeNet(nn.Module):
+class AlexNet(nn.Module):
     def __init__(
         self,
         input_shape: tuple[int, int, int], # channels, height, width
-        conv_pool_params: list[tuple[ConvParam, PoolParam]],
-        num_linear_units: list[int],
+        conv_pool_params: list[tuple[ConvParam, PoolParam | None]],
+        linear_params: list[tuple[int, float]],
         num_labels: int,
     ) -> None:
         super().__init__()
@@ -164,13 +158,15 @@ class LeNet(nn.Module):
         for cp, pp in conv_pool_params:
             self._net.append(nn.LazyConv2d(**dataclasses.asdict(cp)))
             self._net.append(nn.ReLU())
-            self._net.append(nn.AvgPool2d(**dataclasses.asdict(pp)))
+            if pp is not None:
+                self._net.append(nn.MaxPool2d(**dataclasses.asdict(pp)))
 
         self._net.append(nn.Flatten())
 
-        for n in num_linear_units:
+        for n, dp in linear_params:
             self._net.append(nn.LazyLinear(n))
             self._net.append(nn.ReLU())
+            self._net.append(nn.Dropout(dp))
 
         self._net.append(nn.LazyLinear(num_labels))
         self._net.to(device)
@@ -204,7 +200,7 @@ class TransformMixin:
 class Trainer(TransformMixin):
     def __init__(
         self,
-        model: LeNet,
+        model: AlexNet,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
         optimizer: torch.optim.Optimizer,
@@ -296,7 +292,7 @@ class Samples:
 class Validator(TransformMixin):
     def __init__(
         self,
-        model: LeNet,
+        model: AlexNet,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
     ) -> None:
@@ -391,13 +387,6 @@ class MetricsPlotter:
     def plot(self) -> None:
         fig, ax1 = plt.subplots()
 
-        if TYPE_CHECKING:
-            # Using type-checking to suppress pyright errors like:
-            # error: Cannot access attribute "set_xlabel" for class "ndarray[Any, dtype[Any]]"
-            from matplotlib.axes._axes import Axes
-            assert isinstance(fig, plt.Figure)
-            assert isinstance(ax1, Axes)
-
         # Plot losses on the first y-axis
         ax1.set_xlabel('epoch')
         ax1.set_ylabel('loss', color='tab:red')
@@ -422,7 +411,7 @@ class MetricsPlotter:
 def main(
     preview_dataset: bool = True
 ) -> None:
-    input_shape = (1, 28, 28)
+    input_shape = (1, 224, 224)
     batch_size = 128
     num_samples = 16
     max_epochs = 20
@@ -437,19 +426,34 @@ def main(
         dataset.visualize(batch)
 
     # Initialize model, loss, and optimizer
-    model = LeNet(
+    model = AlexNet(
         input_shape=input_shape,
         conv_pool_params=[
             (
-                ConvParam(out_channels=6, kernel_size=5, stride=1, padding=2),
-                PoolParam(kernel_size=2, stride=2, padding=0),
+                ConvParam(out_channels=96, kernel_size=11, stride=4, padding=1),
+                PoolParam(kernel_size=3, stride=2, padding=0),
             ),
             (
-                ConvParam(out_channels=16, kernel_size=5, stride=1, padding=0),
-                PoolParam(kernel_size=2, stride=2, padding=0),
+                ConvParam(out_channels=256, kernel_size=5, stride=1, padding=2),
+                PoolParam(kernel_size=3, stride=2, padding=0),
+            ),
+            (
+                ConvParam(out_channels=384, kernel_size=3, stride=1, padding=1),
+                None,
+            ),
+            (
+                ConvParam(out_channels=384, kernel_size=3, stride=1, padding=1),
+                None,
+            ),
+            (
+                ConvParam(out_channels=256, kernel_size=3, stride=1, padding=1),
+                PoolParam(kernel_size=3, stride=2, padding=0)
             ),
         ],
-        num_linear_units=[120, 84],
+        linear_params=[
+            (4096, 0.5),
+            (4096, 0.5),
+        ],
         num_labels=10,
     )
     loss_measurer = nn.CrossEntropyLoss()
@@ -461,7 +465,7 @@ def main(
     trainer = Trainer(model, dataset, loss_measurer, optimizer)
     validator = Validator(model, dataset, loss_measurer)
     plotter = MetricsPlotter(
-        title="FashionMNIST Classifier (LeNet)", filename="metrics.png")
+        title="FashionMNIST Classifier (AlexNet)", filename="metrics.png")
 
     samples: list[torch.Tensor] = []
     for epoch in range(max_epochs):
@@ -486,6 +490,6 @@ if __name__ == "__main__":
     main(False)
 
     # Final output:
-    # epoch #19, train_loss = 0.470, validate_loss = 0.496, accuracy = 82.0%
-    # elapsed time: 93.0 seconds
+    # epoch #19, train_loss = 0.366, validate_loss = 0.378, accuracy = 85.5%
+    # elapsed time: 514.9 seconds
     # done!
