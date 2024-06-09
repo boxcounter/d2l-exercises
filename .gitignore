@@ -1,4 +1,8 @@
 */FashionMNIST
+**/house-prices-advanced-regression-techniques*
+**/submission.csv
+*.code-workspace
+playground.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
