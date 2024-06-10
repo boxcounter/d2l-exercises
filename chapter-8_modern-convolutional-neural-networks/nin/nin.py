@@ -159,14 +159,6 @@ class NiN(nn.Module):
     ) -> None:
         assert len(block_params) == len(max_pool_params)
 
-        from pprint import pprint
-        pprint(f"input_shape: {input_shape}")
-        pprint(f"block_params: {block_params}")
-        pprint(f"max_pool_params: {max_pool_params}")
-        pprint(f"dropout_probability: {dropout_probability}")
-        pprint(f"final_block_param: {final_block_param}")
-        pprint(f"global_avg_pool_shape: {global_avg_pool_shape}")
-
         super().__init__()
 
         # Initialize the network
