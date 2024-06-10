@@ -190,7 +190,7 @@ class LeNet(nn.Module):
 
     @staticmethod
     def _weights_init_fn(module: nn.Module):
-        if isinstance(module, (nn.LazyConv2d, nn.LazyLinear)):
+        if isinstance(module, (nn.Conv2d, nn.Linear)):
             assert not isinstance(module.weight, nn.UninitializedParameter), \
                 f"Uninitialized weight for module {module}"
             nn.init.xavier_uniform_(module.weight)
@@ -486,6 +486,6 @@ if __name__ == "__main__":
     main(False)
 
     # Final output:
-    # epoch #19, train_loss = 0.470, validate_loss = 0.496, accuracy = 82.0%
-    # elapsed time: 93.0 seconds
+    # epoch #19, train_loss = 0.420, validate_loss = 0.477, accuracy = 82.2%
+    # elapsed time: 100.8 seconds
     # done!
