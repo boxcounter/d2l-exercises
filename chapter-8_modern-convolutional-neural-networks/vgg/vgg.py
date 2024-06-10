@@ -143,11 +143,18 @@ class PoolParam:
     padding: int = 0
 
 
-class AlexNet(nn.Module):
+@dataclasses.dataclass
+class BlockParam:
+    num_cp: int
+    cp: ConvParam
+    pp: PoolParam
+
+
+class VGG(nn.Module):
     def __init__(
         self,
         input_shape: tuple[int, int, int], # channels, height, width
-        conv_pool_params: list[tuple[ConvParam, PoolParam | None]],
+        block_params: list[BlockParam],
         linear_params: list[tuple[int, float]],
         num_labels: int,
     ) -> None:
@@ -155,19 +162,27 @@ class AlexNet(nn.Module):
 
         # Initialize the network
         self._net = nn.Sequential()
-        for cp, pp in conv_pool_params:
-            self._net.append(nn.LazyConv2d(**dataclasses.asdict(cp)))
-            self._net.append(nn.ReLU())
-            if pp is not None:
-                self._net.append(nn.MaxPool2d(**dataclasses.asdict(pp)))
 
+        # VGG blocks
+        for bp in block_params:
+            block = nn.Sequential()
+            for _ in range(bp.num_cp):
+                block.append(nn.LazyConv2d(**dataclasses.asdict(bp.cp)))
+                block.append(nn.ReLU())
+            block.append(nn.MaxPool2d(**dataclasses.asdict(bp.pp)))
+
+            self._net.append(block)
+
+        # Flatten layer
         self._net.append(nn.Flatten())
 
+        # Linear layers
         for n, dp in linear_params:
             self._net.append(nn.LazyLinear(n))
             self._net.append(nn.ReLU())
             self._net.append(nn.Dropout(dp))
 
+        # Output Layer
         self._net.append(nn.LazyLinear(num_labels))
         self._net.to(device)
 
@@ -176,7 +191,7 @@ class AlexNet(nn.Module):
         self.forward(tensors)
         self._net.apply(self._weights_init_fn)
 
-        torchinfo.summary(self._net, input_size=(1, *input_shape), device=device, verbose=2)
+        self._summary(input_shape)
 
     def forward(
         self,
@@ -189,19 +204,21 @@ class AlexNet(nn.Module):
         if isinstance(module, nn.Conv2d | nn.Linear):
             assert not isinstance(module.weight, nn.UninitializedParameter), \
                 f"Uninitialized weight for module {module}"
-            print(f"Initializing weights of {module}")
             nn.init.xavier_uniform_(module.weight)
 
+    def _summary(
+        self,
+        input_shape: tuple[int, int, int], # channels, height, width
+    ) -> None:
+        columns = ("output_size", "kernel_size", "num_params", "params_percent")
+        torchinfo.summary(
+            self._net, input_size=(1, *input_shape), device=device, col_names=columns)
 
-class TransformMixin:
-    def index(self, y: torch.Tensor) -> torch.Tensor:
-        return y.argmax(dim=1)
 
-
-class Trainer(TransformMixin):
+class Trainer:
     def __init__(
         self,
-        model: AlexNet,
+        model: VGG,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
         optimizer: torch.optim.Optimizer,
@@ -290,10 +307,10 @@ class Samples:
         return result
 
 
-class Validator(TransformMixin):
+class Validator:
     def __init__(
         self,
-        model: AlexNet,
+        model: VGG,
         dataset: FashionMNISTDataset,
         loss_measurer: nn.CrossEntropyLoss,
     ) -> None:
@@ -351,6 +368,9 @@ class Validator(TransformMixin):
         for x, y_, y_p_ in zip(X, y, y_pred):
             samples = corrects if torch.equal(y_, y_p_) else wrongs
             samples.add(x, y_, y_p_)
+
+    def index(self, y: torch.Tensor) -> torch.Tensor:
+        return y.argmax(dim=1)
 
 
 class MetricsPlotter:
@@ -427,28 +447,33 @@ def main(
         dataset.visualize(batch)
 
     # Initialize model, loss, and optimizer
-    model = AlexNet(
+    model = VGG(
         input_shape=input_shape,
-        conv_pool_params=[
-            (
-                ConvParam(out_channels=96, kernel_size=11, stride=4, padding=1),
-                PoolParam(kernel_size=3, stride=2, padding=0),
+        block_params=[
+            BlockParam(
+                num_cp=1,
+                cp=ConvParam(out_channels=64, kernel_size=3, stride=1, padding=1),
+                pp=PoolParam(kernel_size=2, stride=2, padding=0),
             ),
-            (
-                ConvParam(out_channels=256, kernel_size=5, stride=1, padding=2),
-                PoolParam(kernel_size=3, stride=2, padding=0),
+            BlockParam(
+                num_cp=1,
+                cp=ConvParam(out_channels=128, kernel_size=3, stride=1, padding=1),
+                pp=PoolParam(kernel_size=2, stride=2, padding=0),
             ),
-            (
-                ConvParam(out_channels=384, kernel_size=3, stride=1, padding=1),
-                None,
+            BlockParam(
+                num_cp=2,
+                cp=ConvParam(out_channels=256, kernel_size=3, stride=1, padding=1),
+                pp=PoolParam(kernel_size=2, stride=2, padding=0),
             ),
-            (
-                ConvParam(out_channels=384, kernel_size=3, stride=1, padding=1),
-                None,
+            BlockParam(
+                num_cp=2,
+                cp=ConvParam(out_channels=512, kernel_size=3, stride=1, padding=1),
+                pp=PoolParam(kernel_size=2, stride=2, padding=0),
             ),
-            (
-                ConvParam(out_channels=256, kernel_size=3, stride=1, padding=1),
-                PoolParam(kernel_size=3, stride=2, padding=0)
+            BlockParam(
+                num_cp=2,
+                cp=ConvParam(out_channels=512, kernel_size=3, stride=1, padding=1),
+                pp=PoolParam(kernel_size=2, stride=2, padding=0),
             ),
         ],
         linear_params=[
@@ -466,7 +491,7 @@ def main(
     trainer = Trainer(model, dataset, loss_measurer, optimizer)
     validator = Validator(model, dataset, loss_measurer)
     plotter = MetricsPlotter(
-        title="FashionMNIST Classifier (AlexNet)", filename="metrics.png")
+        title="FashionMNIST Classifier (VGG)", filename="metrics.png")
 
     samples: list[torch.Tensor] = []
     for epoch in range(max_epochs):
@@ -491,6 +516,6 @@ if __name__ == "__main__":
     main(False)
 
     # Final output:
-    # epoch #19, train_loss = 0.295, validate_loss = 0.308, accuracy = 88.6%
-    # elapsed time: 560.0 seconds
+    # epoch #19, train_loss = 0.245, validate_loss = 0.268, accuracy = 90.1%
+    # elapsed time: 2046.0 seconds
     # done!
