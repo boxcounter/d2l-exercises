@@ -17,7 +17,7 @@ import torchinfo
 
 
 device = (
-    "cuda"
+    "cuda:1"
     if torch.cuda.is_available()
     else "mps"
     if torch.backends.mps.is_available()
@@ -186,9 +186,10 @@ class AlexNet(nn.Module):
 
     @staticmethod
     def _weights_init_fn(module: nn.Module):
-        if isinstance(module, (nn.LazyConv2d, nn.LazyLinear)):
+        if isinstance(module, nn.Conv2d | nn.Linear):
             assert not isinstance(module.weight, nn.UninitializedParameter), \
                 f"Uninitialized weight for module {module}"
+            print(f"Initializing weights of {module}")
             nn.init.xavier_uniform_(module.weight)
 
 
@@ -490,6 +491,6 @@ if __name__ == "__main__":
     main(False)
 
     # Final output:
-    # epoch #19, train_loss = 0.366, validate_loss = 0.378, accuracy = 85.5%
-    # elapsed time: 514.9 seconds
+    # epoch #19, train_loss = 0.295, validate_loss = 0.308, accuracy = 88.6%
+    # elapsed time: 560.0 seconds
     # done!
