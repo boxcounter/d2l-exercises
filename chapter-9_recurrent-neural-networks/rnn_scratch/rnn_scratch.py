@@ -642,7 +642,7 @@ if __name__ == "__main__":
     main()
 
     # Final output:
-    # epoch #99, train_loss = 2.791, validate_loss = 2.934, accuracy = 32.2%, perplexity = 18.81
-    # device = cuda, elapsed time: 120.4 seconds
-    # prediction for 'it has': ' for have have have '
+    # epoch #99, train_loss = 2.790, validate_loss = 2.957, accuracy = 26.2%, perplexity = 19.25
+    # device = cuda, elapsed time: 161.5 seconds
+    # prediction for 'it has': 'knd hown hown hown h'
     # done!
