@@ -285,15 +285,15 @@ class RNNLMConcise(nn.Module):
     def __init__(
         self,
         vocab: Vocabulary,
-        num_hidden_states: int,
+        num_hidden_units: int,
         grad_clip: float = 1.0,
     ) -> None:
         super().__init__()
 
-        self._rnn = nn.RNN(vocab.size, num_hidden_states, batch_first=True, device=device)
+        self._rnn = nn.RNN(vocab.size, num_hidden_units, batch_first=True, device=device)
         self._output_layer = nn.LazyLinear(vocab.size, device=device)
 
-        self._num_hidden_states = num_hidden_states
+        self._num_hidden_units = num_hidden_units
         self._vocab = vocab
         self._grad_clip = grad_clip
 
@@ -392,7 +392,7 @@ class RNNLMConcise(nn.Module):
 
         X = self._vocab.one_hot_encode(inputs)
         rnn_outputs, hidden_states = self._rnn(X, hidden_states)
-        assert_shape('rnn_outputs', rnn_outputs, (batch_size, num_steps, self._num_hidden_states))
+        assert_shape('rnn_outputs', rnn_outputs, (batch_size, num_steps, self._num_hidden_units))
         assert hidden_states is not None
         return self._output_layer(rnn_outputs), hidden_states
 
@@ -571,7 +571,7 @@ def main(
 ) -> None:
     batch_size = 1024
     num_steps = 32
-    num_hidden_states = 256
+    num_hidden_units = 256
     max_epochs = 200
     learning_rate = 0.05
     weight_decay = 1e-5
@@ -585,7 +585,7 @@ def main(
     preview(dataset, num_preview)
 
     # Initialize model, loss, and optimizer
-    model = RNNLMConcise(dataset.vocab, num_hidden_states)
+    model = RNNLMConcise(dataset.vocab, num_hidden_units)
     loss_measurer = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), learning_rate, weight_decay)
 

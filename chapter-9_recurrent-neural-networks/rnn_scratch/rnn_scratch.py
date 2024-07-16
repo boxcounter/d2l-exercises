@@ -284,7 +284,7 @@ class RNNLMScratch(nn.Module):
     def __init__(
         self,
         vocab: Vocabulary,
-        num_hidden_states: int,
+        num_hidden_units: int,
         std: float = 0.01,
         grad_clip: float = 1.0,
     ) -> None:
@@ -292,19 +292,19 @@ class RNNLMScratch(nn.Module):
 
         # Parameters of the hidden layer
         self._W_xh = nn.Parameter(
-            torch.randn((vocab.size, num_hidden_states), device=device) * std)
+            torch.randn((vocab.size, num_hidden_units), device=device) * std)
         self._W_hh = nn.Parameter(
-            torch.randn((num_hidden_states, num_hidden_states), device=device) * std)
+            torch.randn((num_hidden_units, num_hidden_units), device=device) * std)
         self._B_xh = nn.Parameter(
-            torch.zeros((num_hidden_states), device=device))
+            torch.zeros((num_hidden_units), device=device))
 
         # Parameters of the output layer
         self._W_hq = nn.Parameter(
-            torch.randn((num_hidden_states, vocab.size), device=device) * std)
+            torch.randn((num_hidden_units, vocab.size), device=device) * std)
         self._B_hq = nn.Parameter(
             torch.zeros((vocab.size), device=device) * std)
 
-        self._num_hidden_states = num_hidden_states
+        self._num_hidden_units = num_hidden_units
         self._vocab = vocab
         self._grad_clip = grad_clip
 
@@ -355,7 +355,7 @@ class RNNLMScratch(nn.Module):
             outputs, hidden_states = self._forward(inputs, hidden_states)
 
             assert_shape("outputs", outputs, (1, 1, self._vocab.size))
-            assert_shape("hidden_states", hidden_states, (1, self._num_hidden_states))
+            assert_shape("hidden_states", hidden_states, (1, self._num_hidden_units))
 
             pred = self._vocab.decode_one_hot(outputs[0][0])
             sequence.append(pred)
@@ -407,14 +407,14 @@ class RNNLMScratch(nn.Module):
         X_multi_steps = self._vocab.one_hot_encode(inputs_transposed)
 
         if hidden_states is None:
-            H = torch.zeros((batch_size, self._num_hidden_states), device=device)
+            H = torch.zeros((batch_size, self._num_hidden_units), device=device)
         else:
             H = hidden_states
 
         outputs = []
         for X in X_multi_steps:
             H = torch.tanh(X @ self._W_xh + H @ self._W_hh + self._B_xh)
-            assert_shape("H", H, (batch_size, self._num_hidden_states))
+            assert_shape("H", H, (batch_size, self._num_hidden_units))
 
             output = H @ self._W_hq + self._B_hq
             assert_shape("output", output, (batch_size, self._vocab.size))
@@ -600,7 +600,7 @@ def main(
 ) -> None:
     batch_size = 1024
     num_steps = 32
-    num_hidden_states = 256
+    num_hidden_units = 256
     max_epochs = 200
     learning_rate = 0.05
     weight_decay = 1e-5
@@ -614,7 +614,7 @@ def main(
     preview(dataset, num_preview)
 
     # Initialize model, loss, and optimizer
-    model = RNNLMScratch(dataset.vocab, num_hidden_states)
+    model = RNNLMScratch(dataset.vocab, num_hidden_units)
     loss_measurer = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), learning_rate, weight_decay)
 
