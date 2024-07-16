@@ -339,7 +339,7 @@ class RNNLMScratch(nn.Module):
 
         hidden_states = None
 
-        # Warn up
+        # Warm up
         for char in prefix[:-1]:
             tokens = self._vocab.tokenize(char)
             inputs = torch.tensor(tokens, device=device).unsqueeze(0)
@@ -445,10 +445,13 @@ class Trainer:
         self._model.train()
         for X, y in self._dataset.get_data_loader(train=True):
             X = X.to(device)
-            y_one_hot = self._dataset.vocab.one_hot_encode(y.to(device))
+            y_indices = y.to(device)
 
             y_pred_logits = self._model(X)
-            loss = self._loss_measurer(y_pred_logits, y_one_hot)
+
+            loss = self._loss_measurer(
+                y_pred_logits.view(-1, y_pred_logits.shape[-1]),
+                y_indices.view(-1))
 
             # Backpropagation
             loss.backward()
@@ -492,11 +495,13 @@ class Validator:
             for X, y in self._dataset.get_data_loader(train=False):
                 X = X.to(device)
                 y_indices = y.to(device) # shape is (batch_size, num_steps)
-                y_one_hot = self._dataset.vocab.one_hot_encode(y_indices)
 
                 y_pred_logits = self._model(X)
 
-                total_loss += self._loss_measurer(y_pred_logits, y_one_hot).item()
+                total_loss += self._loss_measurer(
+                    y_pred_logits.view(-1, y_pred_logits.shape[-1]),
+                    y_indices.view(-1)
+                    ).item()
                 num_batches += 1
 
                 y_pred_indices = self.index(y_pred_logits).flatten()
@@ -519,26 +524,26 @@ class MetricsPlotter:
         self._epochs = []
         self._train_losses = []
         self._evaluate_losses = []
-        self._accuracies = []
+        self._perplexities = []
 
     def add(
         self,
         epoch: int,
         train_loss: float,
         validate_loss: float,
-        accuracy: float,
+        perplexity: float,
     ) -> None:
         assert isinstance(train_loss, float), \
             f"Invalid type for train_loss (expected 'float', got {type(train_loss)})"
         assert isinstance(validate_loss, float), \
             f"Invalid type for evaluate_loss (expected 'float', got {type(validate_loss)})"
-        assert isinstance(accuracy, float), \
-            f"Invalid type for accuracy (expected 'float', got {type(accuracy)}"
+        assert isinstance(perplexity, float), \
+            f"Invalid type for accuracy (expected 'float', got {type(perplexity)}"
 
         self._epochs.append(epoch)
         self._train_losses.append(train_loss)
         self._evaluate_losses.append(validate_loss)
-        self._accuracies.append(accuracy)
+        self._perplexities.append(perplexity)
 
     def plot(
         self,
@@ -555,15 +560,15 @@ class MetricsPlotter:
         ax1.tick_params(axis='y', labelcolor='tab:red')
         ax1.legend(loc='upper left')
 
-        # Create a second y-axis for accuracy
+        # Create a second y-axis for perplexity
         ax2 = ax1.twinx()
         # Ensure ax2 is of the same type as ax1 (i.e., matplotlib.axes.Axes)
         # for linter type-checking
         assert isinstance(ax2, type(ax1))
-        ax2.set_ylabel('accuracy', color='tab:blue')
-        ax2.plot(self._epochs, self._accuracies, 'g', label='Validation Accuracy', linestyle='--')
+        ax2.set_ylabel('perplexity', color='tab:blue')
+        ax2.plot(
+            self._epochs, self._perplexities, 'g', label='Validation Perplexity', linestyle='--')
         ax2.tick_params(axis='y', labelcolor='tab:blue')
-        ax2.set_ylim(0, 1.0)
         ax2.legend(loc='upper right')
 
         plt.title(title)
@@ -595,20 +600,21 @@ def main(
 ) -> None:
     batch_size = 1024
     num_steps = 32
-    max_epochs = 100
-    learning_rate = 1
-    weight_decay = 0.0
+    num_hidden_states = 256
+    max_epochs = 200
+    learning_rate = 0.05
+    weight_decay = 1e-5
     prefix = "it has"
     num_pred = 20
     start_sec = time.time()
 
     # Initialize dataset
     dataset = TimeMachineDataset(
-        filepath="timemachine.txt", batch_size=batch_size, num_steps=num_steps)
+        filepath="../timemachine.txt", batch_size=batch_size, num_steps=num_steps)
     preview(dataset, num_preview)
 
     # Initialize model, loss, and optimizer
-    model = RNNLMScratch(vocab=dataset.vocab, num_hidden_states=num_steps)
+    model = RNNLMScratch(dataset.vocab, num_hidden_states)
     loss_measurer = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), learning_rate, weight_decay)
 
@@ -624,12 +630,12 @@ def main(
         logger.info("epoch #{}, train_loss = {:.3f}, validate_loss = {:.3f}, "
                     "accuracy = {:.1%}, perplexity = {:.2f}",
                     epoch, train_loss, validate_loss, accuracy, perplexity)
-        plotter.add(epoch, train_loss, validate_loss, accuracy)
+        plotter.add(epoch, train_loss, validate_loss, perplexity)
 
     logger.info("device = {}, elapsed time: {:.1f} seconds", device, time.time() - start_sec)
 
     # Visualize samples (both correct and wrong predictions) from the last epoch
-    plotter.plot(title=f"Language Model ({RNNLMScratch.__name__})", filename="metrics.png")
+    plotter.plot(title=f"Language Model ({RNNLMScratch.__name__})", filename="metrics.jpg")
 
     logger.info("prediction for '{}': '{}'", prefix, model.predict(prefix, num_pred))
     logger.info("done!")
@@ -642,7 +648,7 @@ if __name__ == "__main__":
     main()
 
     # Final output:
-    # epoch #99, train_loss = 2.790, validate_loss = 2.957, accuracy = 26.2%, perplexity = 19.25
-    # device = cuda, elapsed time: 161.5 seconds
-    # prediction for 'it has': 'knd hown hown hown h'
+    # epoch #199, train_loss = 1.679, validate_loss = 1.898, accuracy = 43.8%, perplexity = 6.68
+    # device = cuda, elapsed time: 607.5 seconds
+    # prediction for 'it has': ' i had the same to m'
     # done!
