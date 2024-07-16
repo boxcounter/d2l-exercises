@@ -327,7 +327,7 @@ class RNNLMConcise(nn.Module):
 
         hidden_states = None
 
-        # Warn up
+        # Warm up
         for char in prefix[:-1]:
             tokens = self._vocab.tokenize(char)
             inputs = torch.tensor(tokens, device=device).unsqueeze(0)
