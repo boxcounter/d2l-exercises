@@ -427,6 +427,8 @@ class LSTMLMScratch(nn.Module):
         """
 
         C, H = None, None # cell/internal state, hidden state
+        vocab_size, num_hidden_units = self._vocab.size, self._num_hidden_units
+        batch_size, num_steps = 1, 1
 
         # Warm up
         for char in prefix[:-1]:
@@ -439,12 +441,13 @@ class LSTMLMScratch(nn.Module):
         sequence = [prefix[-1]]
         for _ in range(num_prediction):
             tokens = self._vocab.tokenize(sequence[-1])
-            inputs = torch.tensor(tokens, device=device).unsqueeze(0)
-            assert_shape('inputs', inputs, (1, 1))
-            outputs, C, H = self._forward(inputs, C, H)
+            inputs = torch.tensor(tokens, device=device).unsqueeze(0) # batch_size = 1
+            assert_shape('inputs', inputs, (num_steps, batch_size))
 
-            assert_shape("outputs", outputs, (1, 1, self._vocab.size))
-            assert_shape("hidden_states", H, (1, self._num_hidden_units))
+            outputs, C, H = self._forward(inputs, C, H)
+            assert_shape("outputs", outputs, (batch_size, num_steps, vocab_size))
+            assert_shape("H", H, (batch_size, num_hidden_units))
+            assert_shape("C", C, (batch_size, num_hidden_units))
 
             pred = self._vocab.decode_one_hot(outputs[0][0])
             sequence.append(pred)
@@ -481,13 +484,13 @@ class LSTMLMScratch(nn.Module):
         """
         Parameters:
         - inputs: the input tensor with the shape of (batch_size, num_steps)
-        - internal_state: the internal state tensor, shape of (batch_size, num_hidden_states)
-        - hidden_states: the hidden states tensor with the shape of (batch_size, num_hidden_states)
+        - internal_state: the internal state tensor, shape of (batch_size, num_hidden_units)
+        - hidden_states: the hidden states tensor with the shape of (batch_size, num_hidden_units)
 
         Returns a tuple of three tensors:
         - item #0: the output tensor with the shape of (batch_size, num_steps, vocab_size)
-        - item #1: the internal state tensor with the shape of (batch_size, num_hidden_states)
-        - item #2: the hidden states tensor with the shape of (batch_size, num_hidden_states)
+        - item #1: the internal state tensor with the shape of (batch_size, num_hidden_units)
+        - item #2: the hidden states tensor with the shape of (batch_size, num_hidden_units)
         """
 
         assert_dimensions("inputs", inputs, 2)
