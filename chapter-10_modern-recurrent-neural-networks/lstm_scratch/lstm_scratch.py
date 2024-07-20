@@ -386,7 +386,6 @@ class LSTMLMScratch(nn.Module):
 
         # The memory cell
         self._mem_cell = MemoryCell(vocab, num_hidden_units)
-        self.add_module('memory_cell', self._mem_cell)
 
         # Parameters of the output layer
         self._W_o = nn.Parameter(
@@ -427,7 +426,7 @@ class LSTMLMScratch(nn.Module):
         Returns the predicted string.
         """
 
-        H, C = None, None # hidden state, cell/internal state
+        C, H = None, None # cell/internal state, hidden state
 
         # Warm up
         for char in prefix[:-1]:
@@ -455,10 +454,9 @@ class LSTMLMScratch(nn.Module):
     def clip_gradients(self) -> None:
         total = torch.tensor([0.0], device=device)
         named_params = []
-        for name, param in self.named_parameters(recurse=False):
+        for name, param in self.named_parameters(recurse=True):
             if not param.requires_grad:
                 continue
-
             assert param.grad is not None, f"gradient is None for {name}"
             total += torch.sum(param.grad ** 2)
             named_params.append((name, param))
@@ -693,8 +691,8 @@ def main(
     batch_size = 1024
     num_steps = 32
     num_hidden_units = 256
-    max_epochs = 50
-    learning_rate = 1
+    max_epochs = 20
+    learning_rate = 2.0
     weight_decay = 1e-5
     prefix = "it has"
     num_pred = 20
@@ -715,6 +713,10 @@ def main(
     validator = Validator(model, dataset, loss_measurer)
     plotter = MetricsPlotter()
 
+    logger.info("max_epochs = {}, batch_size = {}, learning_rate = {:.2f}, weight_decay = {:.1e}",
+                max_epochs, batch_size, learning_rate, weight_decay)
+    logger.info("num_hidden_units = {}, num_steps = {}, device = {}",
+                num_hidden_units, num_steps, device)
     for epoch in range(max_epochs):
         train_loss = trainer.fit()
         validate_loss, accuracy, perplexity = validator()
@@ -740,7 +742,7 @@ if __name__ == "__main__":
     main()
 
     # Final output:
-    # epoch #49, train_loss = 1.345, validate_loss = 1.782, accuracy = 48.0%, perplexity = 5.94
-    # device = mps, elapsed time: 534.3 seconds
-    # prediction for 'it has': ' even the sphinx as '
+    # epoch #19, train_loss = 1.545, validate_loss = 1.837, accuracy = 45.3%, perplexity = 6.28
+    # device = cuda, elapsed time: 81.0 seconds
+    # prediction for 'it has': ' i saw the time trav'
     # done!
