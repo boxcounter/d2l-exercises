@@ -173,16 +173,16 @@ class TimeMachineDataset:
     def _construct_dataset(
         vocab: 'Vocabulary',
         content: list[str],
-        num_hidden_states: int,
+        num_steps: int,
         training_set_ratio: float,
-    ) -> tuple[Dataset, Dataset]: # [X, Y]
+    ) -> tuple[Dataset, Dataset]:
         """
         Construct datasets from the content.
 
         Parameters:
         - vocab: the vocabulary object
         - content: the content of the dataset
-        - num_hidden_states: the number of hidden states
+        - num_steps: the number of time steps
         - training_set_ratio: the ratio of the training set
 
         Returns a tuple of two datasets:
@@ -193,7 +193,7 @@ class TimeMachineDataset:
         assert 0.0 < training_set_ratio < 1.0
 
         tokens = vocab.tokenize(content)
-        X, Y = TimeMachineDataset._preprocess_tokens(tokens, num_hidden_states)
+        X, Y = TimeMachineDataset._preprocess_tokens(tokens, num_steps)
         assert X.shape[0] == Y.shape[0]
 
         total = X.shape[0]
@@ -288,6 +288,10 @@ class TimeMachineDataset:
 
 
 class Component(nn.Module):
+    """
+    A component represents a gate or a node in the LSTM.
+    """
+
     def __init__(
         self,
         num_features: int,
@@ -341,11 +345,12 @@ class MemoryCell(nn.Module):
         X: torch.Tensor,
         internal_state: torch.Tensor | None = None,
         hidden_state: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]: # internal state, hidden state
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Parameters:
         - X: the input tensor with the shape of (batch_size, num_steps)
-        - internal_state: the internal state tensor with the shape of (batch_size, num_hidden_units)
+        - internal_state: the internal state tensor with the shape of
+            (batch_size, num_hidden_units)
         - hidden_state: the hidden state tensor with the shape of (batch_size, num_hidden_units)
 
         Returns a tuple of two tensors:
@@ -405,7 +410,7 @@ class LSTMLMScratch(nn.Module):
         Parameters:
         - inputs: the input tensor with the shape of (batch_size, num_steps)
 
-        Returns the outputs with the shape of (batch_size, num_steps, vocab_size)
+        Returns the prediction with the shape of (batch_size, num_steps, vocab_size)
         """
 
         pred, _, _ = self._forward(inputs, None)
@@ -445,9 +450,9 @@ class LSTMLMScratch(nn.Module):
             assert_shape('inputs', inputs, (num_steps, batch_size))
 
             outputs, C, H = self._forward(inputs, C, H)
-            assert_shape("outputs", outputs, (batch_size, num_steps, vocab_size))
-            assert_shape("H", H, (batch_size, num_hidden_units))
-            assert_shape("C", C, (batch_size, num_hidden_units))
+            assert_shape('outputs', outputs, (batch_size, num_steps, vocab_size))
+            assert_shape('H', H, (batch_size, num_hidden_units))
+            assert_shape('C', C, (batch_size, num_hidden_units))
 
             pred = self._vocab.decode_one_hot(outputs[0][0])
             sequence.append(pred)
@@ -493,9 +498,8 @@ class LSTMLMScratch(nn.Module):
         - item #2: the hidden states tensor with the shape of (batch_size, num_hidden_units)
         """
 
-        assert_dimensions("inputs", inputs, 2)
-        batch_size = inputs.shape[0]
-        num_steps = inputs.shape[1]
+        assert_dimensions('inputs', inputs, 2)
+        batch_size, num_steps = inputs.shape
 
         inputs_transposed = inputs.T # transpose to (steps, batch_size) for iteration
         X_multi_steps = self._vocab.one_hot_encode(inputs_transposed)
@@ -504,15 +508,15 @@ class LSTMLMScratch(nn.Module):
         outputs = []
         for X in X_multi_steps:
             C, H = self._mem_cell(X, C, H)
-            assert_shape("C", C, (batch_size, self._num_hidden_units))
-            assert_shape("H", H, (batch_size, self._num_hidden_units))
+            assert_shape('C', C, (batch_size, self._num_hidden_units))
+            assert_shape('H', H, (batch_size, self._num_hidden_units))
 
             output = H @ self._W_o + self._B_o
-            assert_shape("output", output, (batch_size, self._vocab.size))
+            assert_shape('output', output, (batch_size, self._vocab.size))
             outputs.append(output)
 
         outputs = torch.stack(outputs, 1)
-        assert_shape("outputs", outputs, (batch_size, num_steps, self._vocab.size))
+        assert_shape('outputs', outputs, (batch_size, num_steps, self._vocab.size))
 
         return outputs, C, H
 

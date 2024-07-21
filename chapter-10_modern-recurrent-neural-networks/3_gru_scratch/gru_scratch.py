@@ -215,7 +215,7 @@ class TimeMachineDataset:
         content: list[str],
         num_steps: int,
         training_set_ratio: float,
-    ) -> tuple[Dataset, Dataset]: # [X, Y]
+    ) -> tuple[Dataset, Dataset]:
         """
         Construct datasets from the content.
 

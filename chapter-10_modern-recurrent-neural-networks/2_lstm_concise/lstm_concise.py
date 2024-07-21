@@ -172,16 +172,16 @@ class TimeMachineDataset:
     def _construct_dataset(
         vocab: 'Vocabulary',
         content: list[str],
-        num_hidden_states: int,
+        num_steps: int,
         training_set_ratio: float,
-    ) -> tuple[Dataset, Dataset]: # [X, Y]
+    ) -> tuple[Dataset, Dataset]:
         """
         Construct datasets from the content.
 
         Parameters:
         - vocab: the vocabulary object
         - content: the content of the dataset
-        - num_hidden_states: the number of hidden states
+        - num_steps: the number of time steps
         - training_set_ratio: the ratio of the training set
 
         Returns a tuple of two datasets:
@@ -192,7 +192,7 @@ class TimeMachineDataset:
         assert 0.0 < training_set_ratio < 1.0
 
         tokens = vocab.tokenize(content)
-        X, Y = TimeMachineDataset._preprocess_tokens(tokens, num_hidden_states)
+        X, Y = TimeMachineDataset._preprocess_tokens(tokens, num_steps)
         assert X.shape[0] == Y.shape[0]
 
         total = X.shape[0]
@@ -343,7 +343,7 @@ class LSTMLMConcise(nn.Module):
         # Warm up
         for char in prefix[:-1]:
             tokens = self._vocab.tokenize(char)
-            inputs = torch.tensor(tokens, device=device).unsqueeze(0)
+            inputs = torch.tensor(tokens, device=device).unsqueeze(0) # batch_size = 1
             assert_shape('inputs', inputs, (num_steps, batch_size))
             _, H_C = self._forward(inputs, H_C)
 
@@ -351,13 +351,13 @@ class LSTMLMConcise(nn.Module):
         sequence = [prefix[-1]]
         for _ in range(num_prediction):
             tokens = self._vocab.tokenize(sequence[-1])
-            inputs = torch.tensor(tokens, device=device).unsqueeze(0) # batch_size = 1
+            inputs = torch.tensor(tokens, device=device).unsqueeze(0)
             assert_shape('inputs', inputs, (num_steps, batch_size))
 
             outputs, H_C = self._forward(inputs, H_C)
-            assert_shape("outputs", outputs, (batch_size, num_steps, vocab_size))
-            assert_shape("H_C[0]", H_C[0], (num_layers, batch_size, num_hidden_units))
-            assert_shape("H_C[1]", H_C[1], (num_layers, batch_size, num_hidden_units))
+            assert_shape('outputs', outputs, (batch_size, num_steps, vocab_size))
+            assert_shape('H_C[0]', H_C[0], (num_layers, batch_size, num_hidden_units))
+            assert_shape('H_C[1]', H_C[1], (num_layers, batch_size, num_hidden_units))
 
             pred = self._vocab.decode_one_hot(outputs[0][0])
             sequence.append(pred)
@@ -402,7 +402,7 @@ class LSTMLMConcise(nn.Module):
             (num_layers, batch_size, num_hidden_units)
         """
 
-        assert_dimensions("inputs", inputs, 2)
+        assert_dimensions('inputs', inputs, 2)
 
         X = self._vocab.one_hot_encode(inputs)
 
