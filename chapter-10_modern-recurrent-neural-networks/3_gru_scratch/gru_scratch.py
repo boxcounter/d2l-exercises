@@ -512,7 +512,7 @@ class GRULMScratch(nn.Module):
         for char in prefix[:-1]:
             tokens = self._vocab.tokenize(char)
             X = torch.tensor(tokens, device=device).unsqueeze(0) # batch_size = 1
-            assert_shape('X', X, (num_steps, batch_size))
+            assert_shape('X', X, (batch_size, num_steps))
             _, H = self._forward(X, H)
 
         # Predict
@@ -520,7 +520,7 @@ class GRULMScratch(nn.Module):
         for _ in range(num_prediction):
             tokens = self._vocab.tokenize(sequence[-1])
             X = torch.tensor(tokens, device=device).unsqueeze(0)
-            assert_shape('X', X, (num_steps, batch_size))
+            assert_shape('X', X, (batch_size, num_steps))
 
             outputs, H = self._forward(X, H)
             assert_shape('outputs', outputs, (batch_size, num_steps, vocab_size))

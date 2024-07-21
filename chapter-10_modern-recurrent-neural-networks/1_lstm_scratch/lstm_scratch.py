@@ -439,7 +439,7 @@ class LSTMLMScratch(nn.Module):
         for char in prefix[:-1]:
             tokens = self._vocab.tokenize(char)
             inputs = torch.tensor(tokens, device=device).unsqueeze(0)
-            assert_shape('inputs', inputs, (1, 1))
+            assert_shape('inputs', inputs, (batch_size, num_steps))
             _, C, H = self._forward(inputs, C, H)
 
         # Predict
@@ -447,7 +447,7 @@ class LSTMLMScratch(nn.Module):
         for _ in range(num_prediction):
             tokens = self._vocab.tokenize(sequence[-1])
             inputs = torch.tensor(tokens, device=device).unsqueeze(0) # batch_size = 1
-            assert_shape('inputs', inputs, (num_steps, batch_size))
+            assert_shape('inputs', inputs, (batch_size, num_steps))
 
             outputs, C, H = self._forward(inputs, C, H)
             assert_shape('outputs', outputs, (batch_size, num_steps, vocab_size))
@@ -495,7 +495,7 @@ class LSTMLMScratch(nn.Module):
         Returns a tuple of three tensors:
         - item #0: the output tensor with the shape of (batch_size, num_steps, vocab_size)
         - item #1: the internal state tensor with the shape of (batch_size, num_hidden_units)
-        - item #2: the hidden states tensor with the shape of (batch_size, num_hidden_units)
+        - item #2: the hidden state tensor with the shape of (batch_size, num_hidden_units)
         """
 
         assert_dimensions('inputs', inputs, 2)

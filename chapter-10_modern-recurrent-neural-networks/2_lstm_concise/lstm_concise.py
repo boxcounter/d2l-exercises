@@ -344,7 +344,7 @@ class LSTMLMConcise(nn.Module):
         for char in prefix[:-1]:
             tokens = self._vocab.tokenize(char)
             inputs = torch.tensor(tokens, device=device).unsqueeze(0) # batch_size = 1
-            assert_shape('inputs', inputs, (num_steps, batch_size))
+            assert_shape('inputs', inputs, (batch_size, num_steps))
             _, H_C = self._forward(inputs, H_C)
 
         # Predict
@@ -352,7 +352,7 @@ class LSTMLMConcise(nn.Module):
         for _ in range(num_prediction):
             tokens = self._vocab.tokenize(sequence[-1])
             inputs = torch.tensor(tokens, device=device).unsqueeze(0)
-            assert_shape('inputs', inputs, (num_steps, batch_size))
+            assert_shape('inputs', inputs, (batch_size, num_steps))
 
             outputs, H_C = self._forward(inputs, H_C)
             assert_shape('outputs', outputs, (batch_size, num_steps, vocab_size))
