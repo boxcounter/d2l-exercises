@@ -1,5 +1,10 @@
+# Dataset
+**/cifar-10-batches-py/
+timemachine.txt
 */FashionMNIST
 **/house-prices-advanced-regression-techniques*
+*.tar.gz
+
 **/submission.csv
 *.code-workspace
 playground.ipynb
