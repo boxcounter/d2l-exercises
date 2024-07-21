@@ -438,9 +438,7 @@ class MemoryCell(nn.Module):
 
         batch_size = X.shape[0]
         if H_prev is None:
-            H_prev = (torch.zeros((batch_size, self._num_hidden_units), device=device)
-                      if H_prev is None
-                      else H_prev)
+            H_prev = torch.zeros((batch_size, self._num_hidden_units), device=device)
         else:
             assert_dimensions('H_prev', H_prev, 2)
             assert_shape('H_prev', H_prev, (batch_size, self._num_hidden_units))
