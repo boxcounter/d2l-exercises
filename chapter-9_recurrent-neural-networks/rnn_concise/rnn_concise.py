@@ -167,16 +167,16 @@ class TimeMachineDataset:
     def _construct_dataset(
         vocab: 'Vocabulary',
         content: list[str],
-        num_hidden_states: int,
+        num_steps: int,
         training_set_ratio: float,
-    ) -> tuple[Dataset, Dataset]: # [X, Y]
+    ) -> tuple[Dataset, Dataset]:
         """
         Construct datasets from the content.
 
         Parameters:
         - vocab: the vocabulary object
         - content: the content of the dataset
-        - num_hidden_states: the number of hidden states
+        - num_steps: the number of time steps
         - training_set_ratio: the ratio of the training set
 
         Returns a tuple of two datasets:
@@ -187,7 +187,7 @@ class TimeMachineDataset:
         assert 0.0 < training_set_ratio < 1.0
 
         tokens = vocab.tokenize(content)
-        X, Y = TimeMachineDataset._preprocess_tokens(tokens, num_hidden_states)
+        X, Y = TimeMachineDataset._preprocess_tokens(tokens, num_steps)
         assert X.shape[0] == Y.shape[0]
 
         total = X.shape[0]

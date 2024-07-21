@@ -5,7 +5,7 @@
 # pylint:disable=redefined-outer-name
 import pytest
 
-from rnn_scratch import TimeMachineDataset, Vocabulary
+from rnn_scratch import TimeMachineDataset, Vocabulary # type: ignore
 
 
 @pytest.fixture
