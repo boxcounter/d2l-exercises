@@ -563,7 +563,7 @@ class GRULMScratch(nn.Module):
 
         Returns a tuple of two tensors:
         - item #0: the output tensor with the shape of (batch_size, num_steps, vocab_size)
-        - item #2: the hidden state tensor with the shape of (batch_size, num_hidden_units)
+        - item #1: the hidden state tensor with the shape of (batch_size, num_hidden_units)
         """
 
         assert_dimensions('inputs', X, 2)
@@ -817,7 +817,7 @@ if __name__ == "__main__":
     main()
 
     # Final output:
-    # poch #19, train_loss = 1.439, validate_loss = 1.758, accuracy = 48.5%, perplexity = 5.80
+    # epoch #19, train_loss = 1.439, validate_loss = 1.758, accuracy = 48.5%, perplexity = 5.80
     # device = cuda, elapsed time: 92.4 seconds
     # prediction for 'it has': 'ter and the morlocks'
     # done!

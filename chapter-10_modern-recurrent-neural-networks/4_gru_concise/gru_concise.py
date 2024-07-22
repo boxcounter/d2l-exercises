@@ -436,7 +436,7 @@ class GRULMConcise(nn.Module):
 
         Returns a tuple of two tensors:
         - item #0: the output tensor with the shape of (batch_size, num_steps, vocab_size)
-        - item #2: the hidden state tensor with the shape of
+        - item #1: the hidden state tensor with the shape of
             (num_layers, batch_size, num_hidden_units)
         """
 
