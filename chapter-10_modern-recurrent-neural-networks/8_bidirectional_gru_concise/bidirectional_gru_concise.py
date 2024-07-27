@@ -693,7 +693,3 @@ if __name__ == "__main__":
     # device = cuda, elapsed time: 16.2 seconds
     # prediction for 'it has': 'asasasasasasasasasas'
     # done!
-
-    # Although the loss and perplexity appear nearly perfect, the prediction seems a bit odd.
-    # I've been digging into the code but I haven't found any problems. I'm hoping someone
-    # might be able to lend a hand.
