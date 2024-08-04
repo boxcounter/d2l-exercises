@@ -1169,26 +1169,26 @@ if __name__ == "__main__":
 
     main()
 
-    # epoch #499, train_loss = 0.450, validate_loss = 4.812, perplexity = 122.97, bleu_scores = ['0.00', '0.00', '1.00', '1.00']
-    # device = cuda, elapsed time: 670.2 seconds
+    # epoch #199, train_loss = 0.634, validate_loss = 4.709, perplexity = 110.91, bleu_scores = ['0.79', '0.00', '0.00', '1.00']
+    # device = cuda, elapsed time: 273.7 seconds
     # prediction: #0
-    #      source = 'i hope you have a good trip .'
-    #      target = '祝你一路平安。'
-    #      prediction = '祝你一路顺风。'
-    #      bleu = 0.00
+    #     source = 'tom is crying , too .'
+    #     target = '湯姆也在哭。'
+    #     prediction = '汤姆也在哭。'
+    #     bleu = 0.79
     # prediction: #1
-    #      source = 'do you remember the time you and i went to the zoo together when you and i were in elementary school ?'
-    #      target = '你还记得我们还在小学时你和我一起去动物园那次吗？'
-    #      prediction = '你上学，我当时候离开了吗？'
-    #      bleu = 0.00
+    #     source = 'you can see many animals in this forest .'
+    #     target = '你可以在这片森林里看到很多动物。'
+    #     prediction = '你能看到这个很棒的。'
+    #     bleu = 0.00
     # prediction: #2
-    #      source = 'he asked his friends for help .'
-    #      target = '他尋求他的朋友的幫助。'
-    #      prediction = '他尋求他的朋友的幫助。'
-    #      bleu = 1.00
+    #     source = 'tom is now a software engineer .'
+    #     target = '湯姆現在是軟體工程師。'
+    #     prediction = '湯姆現在是軟體一個高中家。'
+    #     bleu = 0.00
     # prediction: #3
-    #      source = 'he is in london on business now .'
-    #      target = '他現在在倫敦洽公。'
-    #      prediction = '他現在在倫敦洽公。'
-    #      bleu = 1.00
+    #     source = 'do you think animals have souls ?'
+    #     target = '你认为动物有灵魂吗？'
+    #     prediction = '你认为动物有灵魂吗？'
+    #     bleu = 1.00
     # done!
