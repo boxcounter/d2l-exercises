@@ -486,12 +486,16 @@ class Encoder(nn.Module):
         """
         Parameters:
         - num_layers: the number of layers.
-        - num_directions: the number of directions (1 or 2).
+        - num_directions: the number of directions (1 or 2). Currently, only unidirectional
+            encoder is supported.
         - num_embedding_dims: the number of embedding dimensions.
         - num_hidden_units: the number of hidden units.
         - dropout: the dropout rate.
         - vocab: the source vocabulary.
         """
+        if num_directions != 1:
+            raise NotImplementedError("only unidirectional encoder is supported")
+
         super().__init__()
 
         self._embedding = nn.Embedding(
@@ -515,8 +519,6 @@ class Encoder(nn.Module):
         """
         Parameters:
         - source: the input (source) tensor with the shape of (batch_size, num_steps)
-        - H_prev: the hidden state of the previous time step, with the shape of
-            (num_directions * num_layers, num_steps, num_hidden_units)
 
         Returns a tuple of two tensors:
         - tensor #1: the output with the shape of
@@ -580,13 +582,13 @@ class Decoder(nn.Module):
     def forward(
         self,
         target_X: torch.Tensor,
-        C: torch.Tensor,
+        H_encoder: torch.Tensor,
         H_prev: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Parameters:
         - target_X: the input (target) tensor with the shape of (batch_size, num_steps)
-        - C: the context tensor from the encoder with the shape of
+        - H_encoder: the hidden state at the final time step of the encoder with the shape of
             (num_encoder_directions * num_layers, batch_size, num_hidden_units)
         - H_prev: the hidden state of the previous time step, with the shape of
             (num_layers, batch_size, num_hidden_units)
@@ -603,9 +605,11 @@ class Decoder(nn.Module):
             self._num_layers, self._num_encoder_directions, self._num_hidden_units,
             self._num_embedding_features, self._vocab.size)
 
-        assert_shape('C', C, (num_encoder_directions * num_layers, batch_size, num_hidden_units))
-        C = C.view(num_layers, batch_size, num_hidden_units * num_encoder_directions)
-        context = C[-1] # Only the final layer's hidden state from the encoder is needed
+        assert_shape('H_encoder', H_encoder,
+                     (num_encoder_directions * num_layers, batch_size, num_hidden_units))
+        H_encoder = H_encoder.view(
+            num_layers, batch_size, num_hidden_units * num_encoder_directions)
+        context = H_encoder[-1] # Only the final layer's hidden state from the encoder is needed
         assert_shape('context', context, (batch_size, num_hidden_units * num_encoder_directions))
         # Repeat the context for each time step (along the middle dimension)
         context = context.view(batch_size, 1, num_hidden_units * num_encoder_directions
@@ -613,7 +617,11 @@ class Decoder(nn.Module):
         assert_shape('context', context,
                      (batch_size, num_steps, num_hidden_units * num_encoder_directions))
 
-        if H_prev is not None:
+        if H_prev is None:
+            # We directly use the hidden state at the final time step of the encoder to
+            # initialize the hidden state of the decoder.
+            H_prev = H_encoder
+        else:
             assert_shape('H_prev', H_prev, (num_layers, batch_size, num_hidden_units))
 
         X = self._embedding(target_X)
@@ -690,11 +698,12 @@ class EncoderDecoderTranslator(nn.Module):
             self._target_vocab.size)
 
         batch_size, _ = source.shape
-        _, C = self._encoder(source)
-        assert_shape('C', C, (num_encoder_directions * num_layers, batch_size, num_hidden_units))
+        _, H_encoder = self._encoder(source)
+        assert_shape('H_encoder', H_encoder,
+                     (num_encoder_directions * num_layers, batch_size, num_hidden_units))
 
         _, num_steps = target_X.shape
-        output, H = self._decoder(target_X, C)
+        output, H = self._decoder(target_X, H_encoder)
         assert_shape('output', output, (batch_size, num_steps, target_vocab_size))
         assert_shape('H', H, (num_layers, batch_size, num_hidden_units))
 
@@ -733,7 +742,7 @@ class EncoderDecoderTranslator(nn.Module):
         source = TextSequenceDataset.tokenize([words], source_vocab)
         assert_shape('source', source, (batch_size, len(words)+1)) # 1 is for <eos>
 
-        _, C = self._encoder(source)
+        _, H_encoder = self._encoder(source)
 
         target_X = torch.tensor([target_vocab.bos_token], device=device).view(1, -1)
         assert_dimensions('target_X', target_X, 2) # batch_size, num_step (which are both one)
@@ -742,7 +751,7 @@ class EncoderDecoderTranslator(nn.Module):
             inputs = target_X[:, -1:]
             assert_shape('inputs', inputs, (batch_size, num_step))
 
-            output, H = self._decoder(inputs, C, H)
+            output, H = self._decoder(inputs, H_encoder, H)
             assert_shape('output', output, (batch_size, num_step, target_vocab.size))
 
             token_pred = output.argmax(dim=-1)
@@ -1094,7 +1103,7 @@ def evaluate(
 def main(
     num_preview: int = 1
 ) -> None:
-    max_epochs = 200
+    max_epochs = 50
     learning_rate = 0.005
     batch_size = 128
     num_steps = 32
@@ -1169,26 +1178,26 @@ if __name__ == "__main__":
 
     main()
 
-    # epoch #199, train_loss = 0.634, validate_loss = 4.709, perplexity = 110.91, bleu_scores = ['0.79', '0.00', '0.00', '1.00']
-    # device = cuda, elapsed time: 273.7 seconds
+    # epoch #49, train_loss = 0.656, validate_loss = 4.802, perplexity = 121.73, bleu_scores = ['0.47', '0.00', '0.62', '0.00']
+    # device = cuda, elapsed time: 89.9 seconds
     # prediction: #0
-    #     source = 'tom is crying , too .'
-    #     target = '湯姆也在哭。'
-    #     prediction = '汤姆也在哭。'
-    #     bleu = 0.79
+    #     source = 'there's nothing that can be done .'
+    #     target = '没办法。'
+    #     prediction = '没办法的关系。'
+    #     bleu = 0.47
     # prediction: #1
-    #     source = 'you can see many animals in this forest .'
-    #     target = '你可以在这片森林里看到很多动物。'
-    #     prediction = '你能看到这个很棒的。'
+    #     source = 'i'm sober .'
+    #     target = '我很清醒。'
+    #     prediction = '我很清理。'
     #     bleu = 0.00
     # prediction: #2
-    #     source = 'tom is now a software engineer .'
-    #     target = '湯姆現在是軟體工程師。'
-    #     prediction = '湯姆現在是軟體一個高中家。'
-    #     bleu = 0.00
+    #     source = 'he sometimes comes to see me .'
+    #     target = '他有时会来看我。'
+    #     prediction = '他有时会来。'
+    #     bleu = 0.62
     # prediction: #3
-    #     source = 'do you think animals have souls ?'
-    #     target = '你认为动物有灵魂吗？'
-    #     prediction = '你认为动物有灵魂吗？'
-    #     bleu = 1.00
+    #     source = 'tom and mary couldn't help me do that .'
+    #     arget = '湯姆和瑪麗不能幫我去做。'
+    #     prediction = '湯姆幫瑪麗不能幫忙。'
+    #     bleu = 0.00
     # done!
