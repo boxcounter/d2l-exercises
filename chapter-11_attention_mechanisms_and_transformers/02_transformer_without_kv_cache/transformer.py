@@ -251,7 +251,7 @@ class TextSequenceDataset:
             if not content or len(content) == 0:
                 raise Exception("Empty file")
         except Exception:
-            logger.debug("downloading content from {}", self.URL)
+            logger.info("downloading content from {}", self.URL)
             content = self._download(self.URL, filepath)
 
         logger.debug("content length = {:,}", len(content))
@@ -752,6 +752,7 @@ class MultiHeadAttention(nn.Module):
         assert_dimension('values', values, 3)
         assert_dimension('valid_lens', valid_lens, (1, 2))
         # Ensure the same batch size
+        assert_same_partial_shape('queries', queries, 'keys', keys, dims=0)
         assert_same_partial_shape('keys', keys, 'values', values, dims=0)
         assert_same_partial_shape('values', values, 'valid_lens', valid_lens, dims=0)
 
@@ -1055,13 +1056,12 @@ class DecoderBlock(nn.Module):
         - inputs: a tuple of three tensors, in the following order:
           - the target tensor with the shape of (batch_size, num_steps, num_hidden_units).
           - the encoder outputs tensor with the shape of (batch_size, num_steps, num_hidden_units).
-          - the valid lengths of the encoder outputs (i.e., the source) tensor with the shape of
-            (batch_size,).
+          - the valid lengths of the encoder outputs tensor with the shape of (batch_size,).
 
         Returns a tuple of three tensors:
           - the output tensor with the shape of (batch_size, num_steps, num_hidden_units).
           - the encoder outputs tensor with the shape of (batch_size, num_steps, num_hidden_units).
-          - the valid lengths of the encoder outputs (i.e., the source) tensor with the shape of
+          - the valid lengths of the encoder outputs tensor with the shape of
             (batch_size,).
         """
 
@@ -1143,8 +1143,8 @@ class Decoder(nn.Module):
         - X: the target tensor with the shape of (batch_size, num_steps).
         - encoder_outputs: the encoder outputs tensor with the shape of
             (batch_size, num_steps, num_hidden_units).
-        - encoder_valid_lens: the valid lengths of the encoder outputs (i.e., the source)
-            tensor with the shape of (batch_size,).
+        - encoder_valid_lens: the valid lengths of the encoder outputs tensor with the
+            shape of (batch_size,).
 
         Returns the output tensor with the shape of (batch_size, num_steps, vocab_size).
         """
@@ -1286,13 +1286,13 @@ class TransformerTranslator(nn.Module):
             output = self._decoder(inputs, encoder_output, source_valid_lens)
             assert_shape('output', output, (batch_size, num_steps, target_vocab.size))
 
-            token_pred = output[:, -1, :].argmax(dim=-1)
-            token_pred = token_pred.unsqueeze(0)
-            if token_pred[0][0] == target_vocab.eos_token:
+            token_pred = output.argmax(2)
+            assert_shape('token_pred', token_pred, (1, num_steps))
+            if token_pred[0][-1].item() == target_vocab.eos_token:
                 logger.debug("reached <eos> token")
                 break
 
-            target_X = torch.cat((target_X, token_pred), dim=-1) # along the num_steps dimension
+            target_X = torch.cat((target_X, token_pred[:, -1:]), dim=1) # along the num_steps dimension
 
         tokens = target_X[:, 1:] # skip <bos>
         lines_of_words = TextSequenceDataset.untokenize(tokens, target_vocab)
@@ -1321,7 +1321,7 @@ class TransformerTranslator(nn.Module):
         for name, param in named_params:
             param.grad *= clip_ratio
 
-        logger.debug("gradients clipped, norm = {:.2f}, clip_ratio = {:.2f}",
+        logger.trace("gradients clipped, norm = {:.2f}, clip_ratio = {:.2f}",
                      norm.item(), clip_ratio.item())
 
 class LossMeasurer:
@@ -1759,7 +1759,7 @@ def evaluate(
     scores = []
     attention_weight = (torch.empty(0), )
     for i, (source, target) in enumerate(dataset.evaluation_samples):
-        prediction, attention_weight = model.predict(source, 10)
+        prediction, attention_weight = model.predict(source)
         score = BLEU(prediction, target).score
         scores.append(score)
 
